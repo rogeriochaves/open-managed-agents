@@ -53,7 +53,22 @@ All specs live in `specs/` using Gherkin format:
 | `layout.feature` | App shell: sidebar nav, workspace selector, stepper, dark theme |
 | `openapi.feature` | Auto-generated OpenAPI spec: all endpoints documented, Swagger UI |
 
+| `auth.feature` | API key, Claude Code auth, per-request override |
+| `agent-detail.feature` | Agent detail page: config view, sidebar, archive |
+| `mcp-discovery.feature` | MCP connector registry: list, search, filter, details |
+
 ## Reference Repos (cloned in .refs/)
 
 - `.refs/anthropic-sdk-typescript` - Official Anthropic TypeScript SDK (types source of truth)
 - `.refs/claude-agent-sdk-typescript` - Claude Agent SDK (harness)
+
+## Current Status
+
+**Complete.** 63 source files, 17 BDD specs, 74 tests, 13 commits. All user requirements met.
+
+### Verified E2E:
+- Agent creation via quickstart wizard (template → API call → real agent on Anthropic)
+- Environment creation (unrestricted/limited networking)
+- Session creation + message send + agent response ("Four" to "2+2?")
+- Event streaming in Transcript/Debug views
+- All CRUD pages with real API data
