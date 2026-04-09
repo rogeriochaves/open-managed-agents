@@ -122,6 +122,35 @@ export function sendSessionEvents(
   );
 }
 
+/**
+ * Stream session events via SSE.
+ * Returns an EventSource-like interface that calls onEvent for each event.
+ */
+export function streamSessionEvents(
+  sessionId: string,
+  onEvent: (event: SessionEvent) => void,
+  onError?: (error: Event) => void,
+): { close: () => void } {
+  const evtSource = new EventSource(`${BASE}/sessions/${sessionId}/events/stream`);
+
+  evtSource.onmessage = (msg) => {
+    try {
+      const parsed = JSON.parse(msg.data) as SessionEvent;
+      onEvent(parsed);
+    } catch {
+      // skip unparseable events
+    }
+  };
+
+  evtSource.onerror = (err) => {
+    onError?.(err);
+  };
+
+  return {
+    close: () => evtSource.close(),
+  };
+}
+
 // ── Environments ────────────────────────────────────────────────────────
 
 export function listEnvironments(params?: EnvironmentListParams) {

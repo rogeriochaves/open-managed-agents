@@ -119,6 +119,33 @@ export function SessionDetailPage() {
     }
   }, [initialEvents]);
 
+  // SSE streaming when session is running
+  useEffect(() => {
+    if (!sessionId || session?.status === "terminated") return;
+
+    setIsStreaming(true);
+    const stream = api.streamSessionEvents(
+      sessionId,
+      (event) => {
+        setEvents((prev) => {
+          // Deduplicate by id
+          if ("id" in event && prev.some((e: any) => e.id === (event as any).id)) {
+            return prev;
+          }
+          return [...prev, event];
+        });
+      },
+      () => {
+        setIsStreaming(false);
+      }
+    );
+
+    return () => {
+      stream.close();
+      setIsStreaming(false);
+    };
+  }, [sessionId, session?.status]);
+
   // Auto-scroll to bottom when new events arrive
   useEffect(() => {
     eventsEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -234,6 +261,12 @@ export function SessionDetailPage() {
         </div>
         <span className="text-xs text-text-muted">
           {events.length} events
+          {isStreaming && (
+            <span className="ml-1.5 inline-flex items-center gap-1 text-green-400">
+              <span className="h-1.5 w-1.5 rounded-full bg-green-400 animate-pulse" />
+              live
+            </span>
+          )}
         </span>
         <div className="ml-auto flex items-center gap-2">
           {showSearch && (

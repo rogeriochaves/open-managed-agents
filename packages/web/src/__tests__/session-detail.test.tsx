@@ -8,6 +8,7 @@ vi.mock("../lib/api", () => ({
   getSession: vi.fn(),
   listSessionEvents: vi.fn(),
   sendSessionEvents: vi.fn(),
+  streamSessionEvents: vi.fn(() => ({ close: vi.fn() })),
 }));
 
 import * as api from "../lib/api";
