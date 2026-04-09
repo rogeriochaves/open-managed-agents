@@ -1,0 +1,10 @@
+node_modules/
+dist/
+.refs/
+.git/
+.env
+.env.local
+.turbo/
+*.tsbuildinfo
+packages/cli/
+specs/
