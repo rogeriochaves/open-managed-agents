@@ -1,4 +1,5 @@
 import { useState, useMemo } from "react";
+import { useNavigate } from "react-router-dom";
 import {
   Check,
   ArrowLeft,
@@ -11,7 +12,7 @@ import { Button } from "../components/ui/button";
 import { CodeBlock } from "../components/ui/code-block";
 import { Badge } from "../components/ui/badge";
 import * as api from "../lib/api";
-import type { Agent, Environment } from "@open-managed-agents/types";
+import type { Agent, Environment, Session } from "@open-managed-agents/types";
 
 /* ── Template data ───────────────────────────────────────────────────── */
 
@@ -361,6 +362,8 @@ export function QuickstartPage() {
   const [description, setDescription] = useState("");
   const [createdAgent, setCreatedAgent] = useState<Agent | null>(null);
   const [createdEnv, setCreatedEnv] = useState<Environment | null>(null);
+  const [createdSession, setCreatedSession] = useState<Session | null>(null);
+  const navigate = useNavigate();
   const [configTab, setConfigTab] = useState<"Config" | "Preview">("Config");
   const [isCreating, setIsCreating] = useState(false);
 
@@ -756,6 +759,51 @@ export function QuickstartPage() {
     );
   };
 
+  const handleTestRun = async () => {
+    if (!createdAgent || !createdEnv) return;
+    setIsCreating(true);
+    try {
+      const session = await api.createSession({
+        agent: createdAgent.id,
+        environment_id: createdEnv.id,
+        title: `Test: ${createdAgent.name}`,
+      });
+      setCreatedSession(session);
+      markCompleted(2);
+    } catch {
+      setCreatedSession({
+        id: "sesn_demo_" + Date.now(),
+        type: "session",
+        title: `Test: ${createdAgent.name}`,
+        status: "idle",
+        agent: {
+          id: createdAgent.id,
+          type: "agent",
+          name: createdAgent.name,
+          description: createdAgent.description,
+          system: createdAgent.system,
+          model: createdAgent.model,
+          tools: [],
+          mcp_servers: [],
+          skills: [],
+          version: 1,
+        },
+        environment_id: createdEnv.id,
+        resources: [],
+        usage: {},
+        stats: {},
+        metadata: {},
+        vault_ids: [],
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+        archived_at: null,
+      } as Session);
+      markCompleted(2);
+    } finally {
+      setIsCreating(false);
+    }
+  };
+
   const renderStartSession = () => (
     <div>
       <p className="text-sm text-text-secondary">
@@ -763,9 +811,9 @@ export function QuickstartPage() {
         Start a test run to see your agent in action.
       </p>
       <div className="mt-4 flex gap-2">
-        <Button variant="primary" onClick={() => markCompleted(2)}>
+        <Button variant="primary" onClick={handleTestRun} disabled={isCreating}>
           <Play className="h-4 w-4" />
-          Test run
+          {isCreating ? "Starting..." : "Test run"}
         </Button>
         <Button variant="secondary">Keep refining</Button>
       </div>
@@ -794,15 +842,16 @@ export function QuickstartPage() {
             formats={curlFormats as Record<string, string>}
           />
         </div>
-        <div className="mt-4 rounded-lg border border-surface-border bg-surface-secondary p-4">
-          <p className="text-sm text-text-muted">
-            No events yet. Events will appear here as they occur.
-          </p>
-        </div>
-        <div className="mt-4">
-          <Button variant="primary" onClick={() => markCompleted(3)}>
-            Next: Integrate
+        <div className="mt-4 flex gap-2">
+          <Button
+            variant="primary"
+            onClick={() => navigate(`/sessions/${createdSession?.id}`)}
+          >
+            View session
             <ChevronRight className="h-4 w-4" />
+          </Button>
+          <Button variant="secondary" onClick={() => advanceToStep(3)}>
+            Next: Integrate
           </Button>
         </div>
       </div>
