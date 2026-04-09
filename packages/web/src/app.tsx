@@ -6,7 +6,9 @@ import { AgentDetailPage } from "./pages/agent-detail";
 import { SessionsListPage } from "./pages/sessions-list";
 import { SessionDetailPage } from "./pages/session-detail";
 import { EnvironmentsListPage } from "./pages/environments-list";
+import { EnvironmentDetailPage } from "./pages/environment-detail";
 import { VaultsListPage } from "./pages/vaults-list";
+import { VaultDetailPage } from "./pages/vault-detail";
 
 export function App() {
   return (
@@ -19,7 +21,9 @@ export function App() {
         <Route path="/sessions" element={<SessionsListPage />} />
         <Route path="/sessions/:sessionId" element={<SessionDetailPage />} />
         <Route path="/environments" element={<EnvironmentsListPage />} />
+        <Route path="/environments/:environmentId" element={<EnvironmentDetailPage />} />
         <Route path="/vaults" element={<VaultsListPage />} />
+        <Route path="/vaults/:vaultId" element={<VaultDetailPage />} />
       </Route>
     </Routes>
   );

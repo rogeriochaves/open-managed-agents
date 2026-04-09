@@ -146,14 +146,18 @@ React 19 with Vite 6, Tailwind CSS v4, TanStack React Query, React Router, and L
 | Page | Route | Description |
 |---|---|---|
 | Quickstart | `/quickstart` | 4-step wizard: template → agent → environment → session |
-| Agents | `/agents` | List, create, edit agents |
-| Sessions | `/sessions` | List sessions, view event streams |
-| Environments | `/environments` | List, create environments |
-| Vaults | `/vaults` | List, manage credential vaults |
+| Agents | `/agents` | List, filter, paginate agents |
+| Agent detail | `/agents/:id` | YAML/JSON config view, details sidebar |
+| Sessions | `/sessions` | List, filter by agent, checkboxes |
+| Session detail | `/sessions/:id` | Transcript/Debug views, SSE streaming, send messages |
+| Environments | `/environments` | List with All/Active filter |
+| Environment detail | `/environments/:id` | Networking, packages, details |
+| Vaults | `/vaults` | List with All/Active filter |
+| Vault detail | `/vaults/:id` | Credentials table, vault details |
 
 ### Tests
 
-50 tests across 7 test suites using Vitest + React Testing Library:
+58 tests across 8 test suites using Vitest + React Testing Library:
 
 ```bash
 pnpm --filter @open-managed-agents/web test
