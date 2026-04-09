@@ -12,6 +12,7 @@ import { Button } from "../components/ui/button";
 import { CodeBlock } from "../components/ui/code-block";
 import { Badge } from "../components/ui/badge";
 import { ConnectorIcon } from "../components/ui/connector-icon";
+import { MCPConnectorBrowser } from "../components/mcp-connector-browser";
 import * as api from "../lib/api";
 import type { Agent, Environment, Session } from "@open-managed-agents/types";
 
@@ -367,6 +368,7 @@ export function QuickstartPage() {
   const navigate = useNavigate();
   const [configTab, setConfigTab] = useState<"Config" | "Preview">("Config");
   const [isCreating, setIsCreating] = useState(false);
+  const [selectedMCPConnectors, setSelectedMCPConnectors] = useState<string[]>([]);
 
   const filteredTemplates = useMemo(() => {
     if (!searchQuery.trim()) return TEMPLATES;
@@ -667,8 +669,20 @@ export function QuickstartPage() {
             ))}
           </div>
           {configTab === "Config" && (
-            <div className="mt-3">
+            <div className="mt-3 space-y-4">
               <CodeBlock configs={{ YAML: yamlStr, JSON: jsonStr }} />
+              <div className="border-t border-surface-border pt-4">
+                <MCPConnectorBrowser
+                  selectedConnectors={selectedMCPConnectors}
+                  onToggle={(connector) => {
+                    setSelectedMCPConnectors((prev) =>
+                      prev.includes(connector.id)
+                        ? prev.filter((id) => id !== connector.id)
+                        : [...prev, connector.id]
+                    );
+                  }}
+                />
+              </div>
             </div>
           )}
           {configTab === "Preview" && (
