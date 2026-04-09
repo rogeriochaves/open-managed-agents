@@ -9,6 +9,7 @@ import { registerEnvironmentRoutes } from "./routes/environments.js";
 import { registerSessionRoutes } from "./routes/sessions.js";
 import { registerEventRoutes } from "./routes/events.js";
 import { registerVaultRoutes } from "./routes/vaults.js";
+import { registerMCPDiscoveryRoutes } from "./routes/mcp-discovery.js";
 
 const app = new OpenAPIHono();
 
@@ -50,6 +51,7 @@ registerEnvironmentRoutes(app);
 registerSessionRoutes(app);
 registerEventRoutes(app);
 registerVaultRoutes(app);
+registerMCPDiscoveryRoutes(app);
 
 // ── Health check ───────────────────────────────────────────────────────────
 

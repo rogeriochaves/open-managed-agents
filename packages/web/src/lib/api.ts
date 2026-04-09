@@ -199,3 +199,28 @@ export function createVault(params: VaultCreateParams) {
     body: JSON.stringify(params),
   });
 }
+
+// ── MCP Discovery ──────────────────────────────────────────────────────────
+
+export interface MCPConnector {
+  id: string;
+  name: string;
+  description: string;
+  url: string;
+  icon: string;
+  category: string;
+  auth_type: "oauth" | "token" | "none";
+}
+
+export function listMCPConnectors(params?: {
+  search?: string;
+  category?: string;
+}) {
+  return request<{ data: MCPConnector[] }>(
+    `/mcp/connectors${toSearchParams(params as Record<string, string | number | boolean | undefined> ?? {})}`,
+  );
+}
+
+export function getMCPConnector(id: string) {
+  return request<MCPConnector>(`/mcp/connectors/${id}`);
+}

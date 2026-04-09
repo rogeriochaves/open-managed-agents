@@ -23,6 +23,12 @@ function getAuth(): AuthConfig {
 
 export const anthropicMiddleware = createMiddleware<AnthropicEnv>(
   async (c, next) => {
+    // Skip auth for local-only endpoints
+    if (c.req.path.startsWith("/v1/mcp/")) {
+      await next();
+      return;
+    }
+
     const auth = getAuth();
     const apiKey = getApiKeyForRequest(
       c.req.header("x-api-key"),
