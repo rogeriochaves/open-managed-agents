@@ -1,0 +1,941 @@
+import { useState, useMemo } from "react";
+import {
+  Check,
+  ArrowLeft,
+  Search,
+  ChevronRight,
+  Save,
+  Play,
+} from "lucide-react";
+import { Button } from "../components/ui/button";
+import { CodeBlock } from "../components/ui/code-block";
+import { Badge } from "../components/ui/badge";
+import * as api from "../lib/api";
+import type { Agent, Environment } from "@open-managed-agents/types";
+
+/* ── Template data ───────────────────────────────────────────────────── */
+
+interface Template {
+  name: string;
+  description: string;
+  connectors: string[];
+  config: Record<string, unknown>;
+}
+
+const TEMPLATES: Template[] = [
+  {
+    name: "Blank agent config",
+    description: "A blank starting point with the core toolset.",
+    connectors: [],
+    config: {
+      name: "my-agent",
+      description: "A new agent",
+      model: "claude-sonnet-4-6",
+      system: "You are a helpful assistant.",
+      mcp_servers: [],
+      tools: [
+        {
+          type: "agent_toolset_20260401",
+          default_config: { enabled: true, permission_policy: { type: "always_allow" } },
+        },
+      ],
+      skills: [],
+    },
+  },
+  {
+    name: "Deep researcher",
+    description:
+      "Conducts multi-step web research with source synthesis and citations.",
+    connectors: [],
+    config: {
+      name: "deep-researcher",
+      description: "Conducts multi-step web research with source synthesis and citations.",
+      model: "claude-sonnet-4-6",
+      system:
+        "You are a research assistant. Conduct thorough web research, synthesize sources, and provide citations.",
+      mcp_servers: [],
+      tools: [
+        {
+          type: "agent_toolset_20260401",
+          default_config: { enabled: true, permission_policy: { type: "always_allow" } },
+        },
+      ],
+      skills: [{ type: "anthropic", skill_id: "web_search" }],
+    },
+  },
+  {
+    name: "Structured extractor",
+    description: "Parses unstructured text into a typed JSON schema.",
+    connectors: [],
+    config: {
+      name: "structured-extractor",
+      description: "Parses unstructured text into a typed JSON schema.",
+      model: "claude-sonnet-4-6",
+      system:
+        "You extract structured data from unstructured text. Output valid JSON matching the requested schema.",
+      mcp_servers: [],
+      tools: [],
+      skills: [],
+    },
+  },
+  {
+    name: "Field monitor",
+    description:
+      "Scans software blogs for a topic and writes a weekly what-changed brief.",
+    connectors: ["notion"],
+    config: {
+      name: "field-monitor",
+      description: "Scans software blogs for a topic and writes a weekly what-changed brief.",
+      model: "claude-sonnet-4-6",
+      system:
+        "You monitor software blogs and news sources. Summarize changes and write weekly briefs.",
+      mcp_servers: [{ type: "url", name: "notion", url: "https://mcp.notion.com/sse" }],
+      tools: [],
+      skills: [{ type: "anthropic", skill_id: "web_search" }],
+    },
+  },
+  {
+    name: "Support agent",
+    description:
+      "Answers customer questions from your docs and knowledge base, and escalates when needed.",
+    connectors: ["notion", "slack"],
+    config: {
+      name: "support-agent",
+      description: "Answers customer questions from your docs and knowledge base.",
+      model: "claude-sonnet-4-6",
+      system:
+        "You are a customer support agent. Answer questions from documentation and escalate when needed.",
+      mcp_servers: [
+        { type: "url", name: "notion", url: "https://mcp.notion.com/sse" },
+        { type: "url", name: "slack", url: "https://mcp.slack.com/sse" },
+      ],
+      tools: [],
+      skills: [],
+    },
+  },
+  {
+    name: "Incident commander",
+    description:
+      "Triages a Sentry alert, opens a Linear incident ticket, and runs the Slack war room.",
+    connectors: ["sentry", "linear", "slack", "github"],
+    config: {
+      name: "incident-commander",
+      description: "Triages alerts, opens incident tickets, and runs war rooms.",
+      model: "claude-sonnet-4-6",
+      system: "You are an incident commander. Triage alerts, create tickets, and coordinate response.",
+      mcp_servers: [
+        { type: "url", name: "sentry", url: "https://mcp.sentry.io/sse" },
+        { type: "url", name: "linear", url: "https://mcp.linear.app/sse" },
+        { type: "url", name: "slack", url: "https://mcp.slack.com/sse" },
+        { type: "url", name: "github", url: "https://mcp.github.com/sse" },
+      ],
+      tools: [],
+      skills: [],
+    },
+  },
+  {
+    name: "Feedback miner",
+    description:
+      "Clusters raw feedback from Slack and Notion into themes and drafts Asana tasks for the top asks.",
+    connectors: ["slack", "notion", "asana"],
+    config: {
+      name: "feedback-miner",
+      description: "Clusters feedback into themes and drafts tasks for top asks.",
+      model: "claude-sonnet-4-6",
+      system: "You mine and cluster customer feedback, then draft actionable tasks.",
+      mcp_servers: [
+        { type: "url", name: "slack", url: "https://mcp.slack.com/sse" },
+        { type: "url", name: "notion", url: "https://mcp.notion.com/sse" },
+        { type: "url", name: "asana", url: "https://mcp.asana.com/sse" },
+      ],
+      tools: [],
+      skills: [],
+    },
+  },
+  {
+    name: "Sprint retro facilitator",
+    description:
+      "Pulls a closed sprint from Linear, synthesizes themes, and writes the retro doc before the meeting.",
+    connectors: ["linear", "slack", "docx"],
+    config: {
+      name: "sprint-retro-facilitator",
+      description: "Synthesizes sprint themes and writes retro docs.",
+      model: "claude-sonnet-4-6",
+      system: "You facilitate sprint retrospectives by analyzing completed sprints and writing retro docs.",
+      mcp_servers: [
+        { type: "url", name: "linear", url: "https://mcp.linear.app/sse" },
+        { type: "url", name: "slack", url: "https://mcp.slack.com/sse" },
+      ],
+      tools: [],
+      skills: [],
+    },
+  },
+  {
+    name: "Support-to-eng escalator",
+    description:
+      "Reads an Intercom conversation, reproduces the bug, and files a linked Jira issue with repro steps.",
+    connectors: ["intercom", "atlassian", "slack"],
+    config: {
+      name: "support-to-eng-escalator",
+      description: "Escalates support conversations to engineering with repro steps.",
+      model: "claude-sonnet-4-6",
+      system:
+        "You read support conversations, reproduce bugs, and file detailed engineering tickets.",
+      mcp_servers: [
+        { type: "url", name: "intercom", url: "https://mcp.intercom.com/sse" },
+        { type: "url", name: "atlassian", url: "https://mcp.atlassian.com/sse" },
+        { type: "url", name: "slack", url: "https://mcp.slack.com/sse" },
+      ],
+      tools: [],
+      skills: [],
+    },
+  },
+  {
+    name: "Data analyst",
+    description:
+      "Load, explore, and visualize data; build reports and answer questions from datasets.",
+    connectors: ["amplitude"],
+    config: {
+      name: "data-analyst",
+      description: "Load, explore, and visualize data; build reports.",
+      model: "claude-sonnet-4-6",
+      system:
+        "You are a data analyst. Load datasets, explore data, create visualizations, and answer questions.",
+      mcp_servers: [
+        { type: "url", name: "amplitude", url: "https://mcp.amplitude.com/sse" },
+      ],
+      tools: [
+        {
+          type: "agent_toolset_20260401",
+          default_config: { enabled: true, permission_policy: { type: "always_allow" } },
+        },
+      ],
+      skills: [],
+    },
+  },
+];
+
+/* ── Helpers ──────────────────────────────────────────────────────────── */
+
+function toYaml(obj: Record<string, unknown>, indent = 0): string {
+  const pad = "  ".repeat(indent);
+  let out = "";
+  for (const [key, value] of Object.entries(obj)) {
+    if (value === null || value === undefined) {
+      out += `${pad}${key}: null\n`;
+    } else if (Array.isArray(value)) {
+      if (value.length === 0) {
+        out += `${pad}${key}: []\n`;
+      } else {
+        out += `${pad}${key}:\n`;
+        for (const item of value) {
+          if (typeof item === "object" && item !== null) {
+            const lines = toYaml(item as Record<string, unknown>, indent + 2).split("\n").filter(Boolean);
+            out += `${pad}  - ${lines[0].trim()}\n`;
+            for (const line of lines.slice(1)) {
+              out += `${pad}    ${line.trim()}\n`;
+            }
+          } else {
+            out += `${pad}  - ${String(item)}\n`;
+          }
+        }
+      }
+    } else if (typeof value === "object") {
+      out += `${pad}${key}:\n`;
+      out += toYaml(value as Record<string, unknown>, indent + 1);
+    } else {
+      const str =
+        typeof value === "string" && value.includes("\n")
+          ? `|\n${value
+              .split("\n")
+              .map((l) => `${pad}  ${l}`)
+              .join("\n")}`
+          : String(value);
+      out += `${pad}${key}: ${str}\n`;
+    }
+  }
+  return out;
+}
+
+function generateCurl(
+  method: string,
+  path: string,
+  body: Record<string, unknown>,
+): Record<string, string> {
+  const json = JSON.stringify(body, null, 2);
+  return {
+    curl: `curl -X ${method} https://api.anthropic.com${path} \\
+  -H "x-api-key: $ANTHROPIC_API_KEY" \\
+  -H "content-type: application/json" \\
+  -H "anthropic-version: 2025-01-01" \\
+  -d '${json}'`,
+    Python: `import anthropic
+
+client = anthropic.Anthropic()
+
+result = client.agents.create(
+${Object.entries(body)
+  .map(([k, v]) => `    ${k}=${JSON.stringify(v)},`)
+  .join("\n")}
+)
+print(result)`,
+    TypeScript: `import Anthropic from "@anthropic-ai/sdk";
+
+const client = new Anthropic();
+
+const result = await client.agents.create(${json});
+console.log(result);`,
+    CLI: `anthropic agents create \\
+${Object.entries(body)
+  .map(([k, v]) => `  --${k.replace(/_/g, "-")} '${JSON.stringify(v)}'`)
+  .join(" \\\n")}`,
+  };
+}
+
+/* ── Steps ───────────────────────────────────────────────────────────── */
+
+const STEPS = [
+  "Create agent",
+  "Configure environment",
+  "Start session",
+  "Integrate",
+] as const;
+
+type Step = (typeof STEPS)[number];
+
+/* ── Stepper ─────────────────────────────────────────────────────────── */
+
+function Stepper({
+  activeIndex,
+  completedIndexes,
+}: {
+  activeIndex: number;
+  completedIndexes: Set<number>;
+}) {
+  return (
+    <div className="flex items-center gap-2">
+      {STEPS.map((step, i) => {
+        const isCompleted = completedIndexes.has(i);
+        const isActive = i === activeIndex;
+        return (
+          <div key={step} className="flex items-center gap-2">
+            <div
+              className={`flex h-6 w-6 items-center justify-center rounded-full text-xs font-medium ${
+                isCompleted
+                  ? "bg-green-600 text-white"
+                  : isActive
+                    ? "bg-accent-blue text-white"
+                    : "bg-surface-hover text-text-muted"
+              }`}
+            >
+              {isCompleted ? <Check className="h-3.5 w-3.5" /> : i + 1}
+            </div>
+            <span
+              className={`text-xs font-medium ${
+                isActive
+                  ? "text-text-primary"
+                  : isCompleted
+                    ? "text-green-400"
+                    : "text-text-muted"
+              }`}
+            >
+              {step}
+            </span>
+            {i < STEPS.length - 1 && (
+              <ChevronRight className="h-3.5 w-3.5 text-text-muted" />
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+/* ── Main component ──────────────────────────────────────────────────── */
+
+export function QuickstartPage() {
+  const [step, setStep] = useState(0);
+  const [completed, setCompleted] = useState<Set<number>>(new Set());
+  const [selectedTemplate, setSelectedTemplate] = useState<Template | null>(null);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [description, setDescription] = useState("");
+  const [createdAgent, setCreatedAgent] = useState<Agent | null>(null);
+  const [createdEnv, setCreatedEnv] = useState<Environment | null>(null);
+  const [configTab, setConfigTab] = useState<"Config" | "Preview">("Config");
+  const [isCreating, setIsCreating] = useState(false);
+
+  const filteredTemplates = useMemo(() => {
+    if (!searchQuery.trim()) return TEMPLATES;
+    const q = searchQuery.toLowerCase();
+    return TEMPLATES.filter(
+      (t) =>
+        t.name.toLowerCase().includes(q) ||
+        t.description.toLowerCase().includes(q),
+    );
+  }, [searchQuery]);
+
+  const markCompleted = (idx: number) => {
+    setCompleted((prev) => new Set(prev).add(idx));
+  };
+
+  const advanceToStep = (idx: number) => {
+    setStep(idx);
+  };
+
+  const handleUseTemplate = async () => {
+    if (!selectedTemplate) return;
+    setIsCreating(true);
+    try {
+      const agent = await api.createAgent({
+        name: selectedTemplate.config.name as string,
+        description: selectedTemplate.config.description as string,
+        model: selectedTemplate.config.model as string,
+        system: selectedTemplate.config.system as string,
+      });
+      setCreatedAgent(agent);
+      markCompleted(0);
+      // Stay at step 0 to show "Agent created" confirmation
+    } catch {
+      // On API failure, still advance UI for demo purposes
+      setCreatedAgent({
+        id: "agent_demo_" + Date.now(),
+        type: "agent",
+        name: selectedTemplate.config.name as string,
+        description: selectedTemplate.config.description as string | null,
+        system: selectedTemplate.config.system as string | null,
+        model: { id: selectedTemplate.config.model as string },
+        tools: [],
+        mcp_servers: [],
+        skills: [],
+        metadata: {},
+        version: 1,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+        archived_at: null,
+      });
+      markCompleted(0);
+    } finally {
+      setIsCreating(false);
+    }
+  };
+
+  const handleDescriptionSubmit = async () => {
+    if (!description.trim()) return;
+    setIsCreating(true);
+    try {
+      const agent = await api.createAgent({
+        name: description.slice(0, 40).replace(/\s+/g, "-").toLowerCase(),
+        description,
+        model: "claude-sonnet-4-6",
+        system: description,
+      });
+      setCreatedAgent(agent);
+      markCompleted(0);
+    } catch {
+      setCreatedAgent({
+        id: "agent_demo_" + Date.now(),
+        type: "agent",
+        name: description.slice(0, 40).replace(/\s+/g, "-").toLowerCase(),
+        description,
+        system: description,
+        model: { id: "claude-sonnet-4-6" },
+        tools: [],
+        mcp_servers: [],
+        skills: [],
+        metadata: {},
+        version: 1,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+        archived_at: null,
+      });
+      markCompleted(0);
+    } finally {
+      setIsCreating(false);
+    }
+  };
+
+  const handleSelectNetworking = async (type: "unrestricted" | "limited") => {
+    try {
+      const env = await api.createEnvironment({
+        name: "general-purpose-env",
+        description: type === "unrestricted" ? "Unrestricted networking" : "Limited networking",
+        config: {
+          type: "cloud",
+          networking: type === "unrestricted" ? { type: "unrestricted" } : { type: "limited" },
+        },
+      });
+      setCreatedEnv(env);
+      markCompleted(1);
+    } catch {
+      setCreatedEnv({
+        id: "env_demo_" + Date.now(),
+        type: "environment",
+        name: "general-purpose-env",
+        description: type === "unrestricted" ? "Unrestricted networking" : "Limited networking",
+        config: {
+          type: "cloud",
+          networking: type === "unrestricted" ? { type: "unrestricted" } : { type: "limited", allowed_hosts: [], allow_mcp_servers: true, allow_package_managers: true },
+          packages: { apt: [], cargo: [], gem: [], go: [], npm: [], pip: [] },
+        },
+        metadata: {},
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+        archived_at: null,
+      });
+      markCompleted(1);
+    }
+  };
+
+  /* ── Render helpers ────────────────────────────────────────────────── */
+
+  const renderTemplateSelection = () => (
+    <div>
+      {/* Description input */}
+      <h2 className="text-xl font-semibold text-text-primary">
+        What do you want to build?
+      </h2>
+      <p className="mt-1 text-sm text-text-secondary">
+        Describe your agent or start with a template.
+      </p>
+      <div className="mt-4 flex gap-2">
+        <input
+          type="text"
+          value={description}
+          onChange={(e) => setDescription(e.target.value)}
+          placeholder="Describe your agent..."
+          className="flex-1 rounded-lg border border-surface-border bg-surface-secondary px-3 py-2 text-sm text-text-primary placeholder:text-text-muted focus:border-accent-blue focus:outline-none"
+          onKeyDown={(e) => {
+            if (e.key === "Enter") handleDescriptionSubmit();
+          }}
+        />
+        <Button
+          variant="primary"
+          onClick={handleDescriptionSubmit}
+          disabled={!description.trim() || isCreating}
+        >
+          {isCreating ? "Creating..." : "Submit"}
+        </Button>
+      </div>
+
+      {/* Separator */}
+      <div className="my-6 border-t border-surface-border" />
+
+      {/* Template grid */}
+      <div className="flex items-center justify-between">
+        <h3 className="text-lg font-semibold text-text-primary">
+          Browse templates
+        </h3>
+      </div>
+      <div className="mt-3 relative">
+        <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-text-muted" />
+        <input
+          type="text"
+          value={searchQuery}
+          onChange={(e) => setSearchQuery(e.target.value)}
+          placeholder="Search templates"
+          className="w-full rounded-lg border border-surface-border bg-surface-secondary py-2 pl-9 pr-3 text-sm text-text-primary placeholder:text-text-muted focus:border-accent-blue focus:outline-none"
+        />
+      </div>
+
+      <div className="mt-4 grid gap-3 sm:grid-cols-2">
+        {filteredTemplates.map((tpl) => (
+          <button
+            key={tpl.name}
+            onClick={() => setSelectedTemplate(tpl)}
+            className="flex flex-col rounded-lg border border-surface-border bg-surface-card p-4 text-left transition-colors hover:border-accent-blue/50 hover:bg-surface-hover cursor-pointer"
+          >
+            <span className="text-sm font-medium text-text-primary">
+              {tpl.name}
+            </span>
+            <span className="mt-1 line-clamp-2 text-xs text-text-secondary">
+              {tpl.description}
+            </span>
+            {tpl.connectors.length > 0 && (
+              <div className="mt-2 flex flex-wrap gap-1">
+                {tpl.connectors.map((c) => (
+                  <Badge key={c} variant="default">
+                    {c}
+                  </Badge>
+                ))}
+              </div>
+            )}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+
+  const renderTemplatePreview = () => {
+    if (!selectedTemplate) return null;
+    const yamlStr = toYaml(selectedTemplate.config);
+    const jsonStr = JSON.stringify(selectedTemplate.config, null, 2);
+
+    return (
+      <div>
+        <button
+          onClick={() => setSelectedTemplate(null)}
+          className="mb-4 flex items-center gap-1 text-sm text-text-secondary hover:text-text-primary transition-colors cursor-pointer"
+        >
+          <ArrowLeft className="h-4 w-4" />
+          Back to templates
+        </button>
+
+        <div className="flex items-center justify-between">
+          <div>
+            <span className="text-xs uppercase tracking-wider text-text-muted">
+              Template
+            </span>
+            <h2 className="text-lg font-semibold text-text-primary">
+              {selectedTemplate.name}
+            </h2>
+          </div>
+          <Button
+            variant="primary"
+            onClick={handleUseTemplate}
+            disabled={isCreating}
+          >
+            {isCreating ? "Creating..." : "Use this template"}
+          </Button>
+        </div>
+
+        <div className="mt-4">
+          <CodeBlock configs={{ YAML: yamlStr, JSON: jsonStr }} />
+        </div>
+      </div>
+    );
+  };
+
+  const renderAgentCreated = () => {
+    const agentConfig = selectedTemplate?.config ?? {
+      name: createdAgent?.name,
+      description: createdAgent?.description,
+      model: createdAgent?.model.id,
+      system: createdAgent?.system,
+    };
+    const body = {
+      name: agentConfig.name,
+      description: agentConfig.description,
+      model: agentConfig.model,
+      system: agentConfig.system,
+    };
+    const curlFormats = generateCurl("POST", "/v1/agents", body as Record<string, unknown>);
+    const yamlStr = toYaml(agentConfig as Record<string, unknown>);
+    const jsonStr = JSON.stringify(agentConfig, null, 2);
+
+    return (
+      <div className="flex gap-6">
+        {/* Left panel */}
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2 text-green-400">
+            <Check className="h-5 w-5" />
+            <span className="text-sm font-medium">Agent created</span>
+          </div>
+          <p className="mt-2 text-sm text-text-secondary">
+            Your agent is created! Here&apos;s the call that made it:
+          </p>
+          <div className="mt-3">
+            <CodeBlock
+              title="POST /v1/agents"
+              formats={curlFormats as Record<string, string>}
+            />
+          </div>
+          <div className="mt-4">
+            <Button variant="primary" onClick={() => advanceToStep(1)}>
+              Next: Configure environment
+              <ChevronRight className="h-4 w-4" />
+            </Button>
+          </div>
+        </div>
+
+        {/* Right panel */}
+        <div className="w-96 shrink-0">
+          <div className="flex border-b border-surface-border">
+            {(["Config", "Preview"] as const).map((tab) => (
+              <button
+                key={tab}
+                onClick={() => setConfigTab(tab)}
+                className={`px-4 py-2 text-sm font-medium transition-colors cursor-pointer ${
+                  configTab === tab
+                    ? "border-b-2 border-accent-blue text-text-primary"
+                    : "text-text-muted hover:text-text-secondary"
+                }`}
+              >
+                {tab}
+              </button>
+            ))}
+          </div>
+          {configTab === "Config" && (
+            <div className="mt-3">
+              <CodeBlock configs={{ YAML: yamlStr, JSON: jsonStr }} />
+            </div>
+          )}
+          {configTab === "Preview" && (
+            <div className="mt-3 rounded-lg border border-surface-border bg-surface-secondary p-4 text-sm text-text-muted">
+              Preview will render once the session is started.
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  };
+
+  const renderConfigureEnvironment = () => (
+    <div>
+      <p className="text-sm text-text-secondary">
+        Environments are container workspaces where your agent runs. Configure
+        networking access for your agent.
+      </p>
+      <h3 className="mt-4 text-sm font-medium text-text-primary">
+        Does your agent need access to the open internet, or only specific
+        hosts?
+      </h3>
+      <div className="mt-3 flex flex-col gap-2">
+        <button
+          onClick={() => handleSelectNetworking("unrestricted")}
+          className="flex items-center gap-3 rounded-lg border border-surface-border bg-surface-card p-4 text-left transition-colors hover:border-accent-blue/50 hover:bg-surface-hover cursor-pointer"
+        >
+          <span className="flex h-6 w-6 items-center justify-center rounded-full bg-surface-hover text-xs font-medium text-text-secondary">
+            1
+          </span>
+          <span className="text-sm font-medium text-text-primary">
+            Unrestricted
+          </span>
+        </button>
+        <button
+          onClick={() => handleSelectNetworking("limited")}
+          className="flex items-center gap-3 rounded-lg border border-surface-border bg-surface-card p-4 text-left transition-colors hover:border-accent-blue/50 hover:bg-surface-hover cursor-pointer"
+        >
+          <span className="flex h-6 w-6 items-center justify-center rounded-full bg-surface-hover text-xs font-medium text-text-secondary">
+            2
+          </span>
+          <span className="text-sm font-medium text-text-primary">
+            Limited
+          </span>
+        </button>
+        <button className="flex items-center gap-3 rounded-lg border border-surface-border bg-surface-card p-4 text-left transition-colors hover:border-accent-blue/50 hover:bg-surface-hover cursor-pointer">
+          <span className="text-sm text-text-muted">Something else</span>
+        </button>
+      </div>
+      <div className="mt-4">
+        <Button variant="ghost" onClick={() => { markCompleted(1); advanceToStep(2); }}>
+          Skip
+        </Button>
+      </div>
+    </div>
+  );
+
+  const renderEnvironmentCreated = () => {
+    const body = {
+      name: createdEnv?.name ?? "general-purpose-env",
+      config: { type: "cloud", networking: { type: "unrestricted" } },
+    };
+    const curlFormats = generateCurl("POST", "/v1/environments", body);
+
+    return (
+      <div>
+        <div className="flex items-center gap-2 text-green-400">
+          <Check className="h-5 w-5" />
+          <span className="text-sm font-medium">Environment created</span>
+        </div>
+        <p className="mt-2 text-sm text-text-secondary">
+          Your environment is ready with full internet access. On to sessions!
+        </p>
+        <div className="mt-3">
+          <CodeBlock
+            title="POST /v1/environments"
+            formats={curlFormats as Record<string, string>}
+          />
+        </div>
+        <div className="mt-4">
+          <Button variant="primary" onClick={() => setStep(2)}>
+            Next: Start session
+            <ChevronRight className="h-4 w-4" />
+          </Button>
+        </div>
+      </div>
+    );
+  };
+
+  const renderStartSession = () => (
+    <div>
+      <p className="text-sm text-text-secondary">
+        A session is a running instance of your agent inside an environment.
+        Start a test run to see your agent in action.
+      </p>
+      <div className="mt-4 flex gap-2">
+        <Button variant="primary" onClick={() => markCompleted(2)}>
+          <Play className="h-4 w-4" />
+          Test run
+        </Button>
+        <Button variant="secondary">Keep refining</Button>
+      </div>
+    </div>
+  );
+
+  const renderSessionCreated = () => {
+    const body = {
+      agent: createdAgent?.id ?? "agent_xxx",
+      environment_id: createdEnv?.id ?? "env_xxx",
+    };
+    const curlFormats = generateCurl("POST", "/v1/sessions", body);
+
+    return (
+      <div>
+        <div className="flex items-center gap-2 text-green-400">
+          <Check className="h-5 w-5" />
+          <span className="text-sm font-medium">Session created</span>
+        </div>
+        <p className="mt-2 text-sm text-text-secondary">
+          Your session is live. Waiting for first message...
+        </p>
+        <div className="mt-3">
+          <CodeBlock
+            title="POST /v1/sessions"
+            formats={curlFormats as Record<string, string>}
+          />
+        </div>
+        <div className="mt-4 rounded-lg border border-surface-border bg-surface-secondary p-4">
+          <p className="text-sm text-text-muted">
+            No events yet. Events will appear here as they occur.
+          </p>
+        </div>
+        <div className="mt-4">
+          <Button variant="primary" onClick={() => markCompleted(3)}>
+            Next: Integrate
+            <ChevronRight className="h-4 w-4" />
+          </Button>
+        </div>
+      </div>
+    );
+  };
+
+  const renderIntegrate = () => {
+    const agentId = createdAgent?.id ?? "agent_xxx";
+    const envId = createdEnv?.id ?? "env_xxx";
+
+    const integrationCode = {
+      curl: `# Create a session and send a message
+curl -X POST https://api.anthropic.com/v1/sessions \\
+  -H "x-api-key: $ANTHROPIC_API_KEY" \\
+  -H "content-type: application/json" \\
+  -H "anthropic-version: 2025-01-01" \\
+  -d '{
+  "agent": "${agentId}",
+  "environment_id": "${envId}"
+}'`,
+      Python: `import anthropic
+
+client = anthropic.Anthropic()
+
+# Create a session
+session = client.sessions.create(
+    agent="${agentId}",
+    environment_id="${envId}",
+)
+
+# Send a message
+client.sessions.events.create(
+    session_id=session.id,
+    events=[{
+        "type": "user.message",
+        "content": [{"type": "text", "text": "Hello!"}],
+    }],
+)`,
+      TypeScript: `import Anthropic from "@anthropic-ai/sdk";
+
+const client = new Anthropic();
+
+// Create a session
+const session = await client.sessions.create({
+  agent: "${agentId}",
+  environment_id: "${envId}",
+});
+
+// Send a message
+await client.sessions.events.create(session.id, {
+  events: [{
+    type: "user.message",
+    content: [{ type: "text", text: "Hello!" }],
+  }],
+});`,
+      CLI: `# Create a session
+anthropic sessions create \\
+  --agent "${agentId}" \\
+  --environment-id "${envId}"
+
+# Send a message
+anthropic sessions events create <session_id> \\
+  --events '[{"type":"user.message","content":[{"type":"text","text":"Hello!"}]}]'`,
+    };
+
+    return (
+      <div>
+        <h2 className="text-lg font-semibold text-text-primary">
+          Integrate
+        </h2>
+        <p className="mt-1 text-sm text-text-secondary">
+          Use these code snippets to integrate your agent into your application.
+        </p>
+        <div className="mt-4">
+          <CodeBlock
+            title="Integration"
+            formats={integrationCode}
+          />
+        </div>
+      </div>
+    );
+  };
+
+  /* ── Step content router ───────────────────────────────────────────── */
+
+  const renderStep = () => {
+    if (step === 0) {
+      if (createdAgent) return renderAgentCreated();
+      if (selectedTemplate) return renderTemplatePreview();
+      return renderTemplateSelection();
+    }
+    if (step === 1) {
+      if (createdEnv) return renderEnvironmentCreated();
+      return renderConfigureEnvironment();
+    }
+    if (step === 2) {
+      if (completed.has(2)) return renderSessionCreated();
+      return renderStartSession();
+    }
+    if (step === 3) {
+      return renderIntegrate();
+    }
+    return null;
+  };
+
+  return (
+    <div className="mx-auto max-w-5xl p-6">
+      {/* Top bar */}
+      <div className="mb-6 flex items-center justify-between">
+        <h1 className="text-sm font-medium text-text-secondary">
+          Quickstart
+        </h1>
+        <div className="flex items-center gap-3">
+          <Stepper activeIndex={step} completedIndexes={completed} />
+          {createdAgent && (
+            <div className="ml-4 flex items-center gap-2">
+              <Button variant="secondary" size="sm">
+                <Save className="h-3.5 w-3.5" />
+                Save
+                <kbd className="ml-1 rounded bg-surface-hover px-1 text-[10px] text-text-muted">
+                  ⌘S
+                </kbd>
+              </Button>
+              <Button variant="primary" size="sm">
+                <Play className="h-3.5 w-3.5" />
+                Test run
+              </Button>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {renderStep()}
+    </div>
+  );
+}
