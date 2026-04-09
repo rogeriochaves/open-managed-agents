@@ -20,6 +20,14 @@ import type {
 
 const BASE = "/v1";
 
+/** Get the API key from localStorage if set */
+function getApiKeyHeader(): Record<string, string> {
+  const key = typeof window !== "undefined"
+    ? localStorage.getItem("oma_api_key")
+    : null;
+  return key ? { "x-api-key": key } : {};
+}
+
 async function request<T>(
   path: string,
   options?: RequestInit,
@@ -27,13 +35,16 @@ async function request<T>(
   const res = await fetch(`${BASE}${path}`, {
     headers: {
       "Content-Type": "application/json",
+      ...getApiKeyHeader(),
       ...options?.headers,
     },
     ...options,
   });
   if (!res.ok) {
     const body = await res.text().catch(() => "");
-    throw new Error(`API ${res.status}: ${body}`);
+    const error = new Error(`API ${res.status}: ${body}`);
+    (error as any).status = res.status;
+    throw error;
   }
   return res.json();
 }

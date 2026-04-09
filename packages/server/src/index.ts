@@ -25,6 +25,24 @@ app.use(
 
 app.use("/v1/*", anthropicMiddleware);
 
+// ── Error handler ──────────────────────────────────────────────────────────
+
+app.onError((err, c) => {
+  // Extract Anthropic API errors
+  const apiError = (err as any)?.error ?? (err as any)?.response;
+  const status = (err as any)?.status ?? 500;
+  const message = apiError?.error?.message ?? err.message ?? "Internal server error";
+  const type = apiError?.error?.type ?? "internal_error";
+
+  console.error(`[${c.req.method} ${c.req.path}] ${status}: ${message}`);
+
+  const statusCode = Math.max(400, Math.min(status, 599));
+  return c.json(
+    { error: { type, message } },
+    statusCode as any
+  );
+});
+
 // ── Routes ──────────────────────────────────────────────────────────────────
 
 registerAgentRoutes(app);
@@ -32,6 +50,12 @@ registerEnvironmentRoutes(app);
 registerSessionRoutes(app);
 registerEventRoutes(app);
 registerVaultRoutes(app);
+
+// ── Health check ───────────────────────────────────────────────────────────
+
+app.get("/health", (c) =>
+  c.json({ status: "ok", timestamp: new Date().toISOString() })
+);
 
 // ── OpenAPI spec & Swagger UI ───────────────────────────────────────────────
 
