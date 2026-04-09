@@ -153,7 +153,7 @@ React 19 with Vite 6, Tailwind CSS v4, TanStack React Query, React Router, and L
 
 ### Tests
 
-35 tests across 5 test suites using Vitest + React Testing Library:
+50 tests across 7 test suites using Vitest + React Testing Library:
 
 ```bash
 pnpm --filter @open-managed-agents/web test
