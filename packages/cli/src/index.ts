@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import "dotenv/config";
 import { Command } from "commander";
 import { agentsCommand } from "./commands/agents.js";
 import { environmentsCommand } from "./commands/environments.js";
