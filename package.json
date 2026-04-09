@@ -3,7 +3,7 @@
   "private": true,
   "packageManager": "pnpm@10.30.3",
   "scripts": {
-    "dev": "turbo dev",
+    "dev": "concurrently -n server,web -c blue,green \"pnpm --filter @open-managed-agents/server dev\" \"pnpm --filter @open-managed-agents/web dev\"",
     "build": "turbo build",
     "test": "turbo test",
     "lint": "turbo lint",

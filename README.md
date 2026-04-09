@@ -53,14 +53,12 @@ echo 'ANTHROPIC_API_KEY=your-key-here' > .env
 ### Run
 
 ```bash
-# Start the API server (port 3001)
-pnpm --filter @open-managed-agents/server dev
-
-# Start the frontend (port 5173, proxies /v1 to server)
-pnpm --filter @open-managed-agents/web dev
-
-# Or run both with turbo
+# Start both server + frontend (recommended)
 pnpm dev
+
+# Or start individually:
+pnpm --filter @open-managed-agents/server dev  # API server on port 3001
+pnpm --filter @open-managed-agents/web dev     # Frontend on port 5173
 ```
 
 Open [http://localhost:5173](http://localhost:5173) for the UI, or [http://localhost:3001/docs](http://localhost:3001/docs) for the Swagger UI.
