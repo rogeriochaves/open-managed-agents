@@ -11,6 +11,7 @@ import {
 import { Button } from "../components/ui/button";
 import { CodeBlock } from "../components/ui/code-block";
 import { Badge } from "../components/ui/badge";
+import { ConnectorIcon } from "../components/ui/connector-icon";
 import * as api from "../lib/api";
 import type { Agent, Environment, Session } from "@open-managed-agents/types";
 
@@ -554,11 +555,9 @@ export function QuickstartPage() {
               {tpl.description}
             </span>
             {tpl.connectors.length > 0 && (
-              <div className="mt-2 flex flex-wrap gap-1">
+              <div className="mt-2 flex gap-1">
                 {tpl.connectors.map((c) => (
-                  <Badge key={c} variant="default">
-                    {c}
-                  </Badge>
+                  <ConnectorIcon key={c} name={c} size={22} />
                 ))}
               </div>
             )}

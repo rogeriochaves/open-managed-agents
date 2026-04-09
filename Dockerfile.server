@@ -1,0 +1,18 @@
+FROM node:22-slim AS base
+RUN corepack enable pnpm
+
+WORKDIR /app
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+COPY packages/types/package.json packages/types/
+COPY packages/server/package.json packages/server/
+RUN pnpm install --frozen-lockfile
+
+COPY tsconfig.base.json ./
+COPY packages/types/ packages/types/
+COPY packages/server/ packages/server/
+
+RUN pnpm --filter @open-managed-agents/types build
+RUN pnpm --filter @open-managed-agents/server build
+
+EXPOSE 3001
+CMD ["node", "packages/server/dist/index.js"]
