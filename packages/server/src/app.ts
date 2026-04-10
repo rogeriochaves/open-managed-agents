@@ -27,6 +27,7 @@ import { getDB } from "./db/index.js";
 import { loadGovernanceConfig } from "./lib/governance-config.js";
 import { initAuth } from "./lib/auth-session.js";
 import { initEncryption } from "./lib/encryption.js";
+import { authGuard } from "./middleware/auth-guard.js";
 
 export interface CreateAppOptions {
   /** Path to a governance config JSON file to load on boot. */
@@ -70,6 +71,11 @@ export async function createApp(
       credentials: true,
     })
   );
+
+  // Auth guard — rejects any non-public path with 401 unless the
+  // caller presents a valid session cookie. Honors AUTH_ENABLED=false
+  // for dev/test.
+  app.use("*", authGuard);
 
   // ── Error handler ─────────────────────────────────────────────────────
   app.onError((err, c) => {
