@@ -109,8 +109,11 @@ describe("MCPConnectorBrowser", () => {
     await waitFor(() => {
       expect(screen.getByText("Slack")).toBeInTheDocument();
     });
-    // The selected connector card should have accent styling
-    const slackCard = screen.getByText("Slack").closest("button");
+    // The selected connector is now a <div> wrapping the click <button>
+    // and the accent border lives on that outer div.
+    const slackCard = screen
+      .getByText("Slack")
+      .closest("div.group") as HTMLElement | null;
     expect(slackCard?.className).toContain("border-accent-blue");
   });
 

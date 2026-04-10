@@ -1,4 +1,8 @@
 import { OpenAPIHono, createRoute, z } from "@hono/zod-openapi";
+import { getDB, newId } from "../db/index.js";
+import { encrypt } from "../lib/encryption.js";
+import { currentUser } from "../lib/current-user.js";
+import { auditLog } from "./governance.js";
 
 const tags = ["MCP Discovery"];
 
@@ -171,6 +175,12 @@ const ConnectorSchema = z.object({
   icon: z.string(),
   category: z.string(),
   auth_type: z.enum(["oauth", "token", "none"]),
+  connected: z.boolean().optional(),
+});
+
+const ConnectBodySchema = z.object({
+  token: z.string().min(1),
+  auth_type: z.enum(["token", "oauth_bearer"]).optional(),
 });
 
 const ConnectorListQuerySchema = z.object({
@@ -220,8 +230,72 @@ const getConnectorRoute = createRoute({
   },
 });
 
+const connectConnectorRoute = createRoute({
+  method: "post",
+  path: "/v1/mcp/connectors/{connectorId}/connect",
+  tags,
+  summary:
+    "Connect an MCP connector by storing an encrypted token for the current organization",
+  request: {
+    params: z.object({ connectorId: z.string() }),
+    body: {
+      content: { "application/json": { schema: ConnectBodySchema } },
+    },
+  },
+  responses: {
+    200: {
+      description: "Connector connected",
+      content: {
+        "application/json": {
+          schema: z.object({
+            id: z.string(),
+            connector_id: z.string(),
+            auth_type: z.string(),
+            created_at: z.string(),
+          }),
+        },
+      },
+    },
+  },
+});
+
+const disconnectConnectorRoute = createRoute({
+  method: "delete",
+  path: "/v1/mcp/connectors/{connectorId}/connect",
+  tags,
+  summary: "Disconnect an MCP connector (deletes the stored credential)",
+  request: {
+    params: z.object({ connectorId: z.string() }),
+  },
+  responses: {
+    200: {
+      description: "Connector disconnected",
+      content: {
+        "application/json": {
+          schema: z.object({ deleted: z.boolean() }),
+        },
+      },
+    },
+  },
+});
+
+// ── Helper: which connectors does the current org have credentials for? ──
+
+async function getConnectedIds(organizationId: string): Promise<Set<string>> {
+  try {
+    const db = await getDB();
+    const rows = await db.all<{ connector_id: string }>(
+      "SELECT connector_id FROM mcp_connections WHERE organization_id = ?",
+      organizationId,
+    );
+    return new Set(rows.map((r) => r.connector_id));
+  } catch {
+    return new Set();
+  }
+}
+
 export function registerMCPDiscoveryRoutes(app: OpenAPIHono) {
-  app.openapi(listConnectorsRoute, (c) => {
+  app.openapi(listConnectorsRoute, async (c) => {
     const { search, category } = c.req.valid("query");
     let results = [...CONNECTORS];
 
@@ -239,10 +313,19 @@ export function registerMCPDiscoveryRoutes(app: OpenAPIHono) {
       results = results.filter((r) => r.category === category);
     }
 
-    return c.json({ data: results }, 200);
+    const user = await currentUser(c);
+    const organizationId = user?.organization_id ?? "org_default";
+    const connected = await getConnectedIds(organizationId);
+
+    return c.json(
+      {
+        data: results.map((r) => ({ ...r, connected: connected.has(r.id) })),
+      },
+      200,
+    );
   });
 
-  app.openapi(getConnectorRoute, (c) => {
+  app.openapi(getConnectorRoute, async (c) => {
     const { connectorId } = c.req.valid("param");
     const connector = CONNECTORS.find((r) => r.id === connectorId);
 
@@ -253,6 +336,94 @@ export function registerMCPDiscoveryRoutes(app: OpenAPIHono) {
       );
     }
 
-    return c.json(connector, 200);
+    const user = await currentUser(c);
+    const organizationId = user?.organization_id ?? "org_default";
+    const connected = await getConnectedIds(organizationId);
+
+    return c.json({ ...connector, connected: connected.has(connector.id) }, 200);
+  });
+
+  app.openapi(connectConnectorRoute, async (c) => {
+    const { connectorId } = c.req.valid("param");
+    const body = c.req.valid("json");
+
+    const connector = CONNECTORS.find((r) => r.id === connectorId);
+    if (!connector) {
+      throw Object.assign(
+        new Error(`Connector ${connectorId} not found`),
+        { status: 404, type: "not_found" },
+      );
+    }
+
+    const user = await currentUser(c);
+    const organizationId = user?.organization_id ?? "org_default";
+
+    const db = await getDB();
+
+    // Upsert: delete any existing row for this (org, connector) first
+    await db.run(
+      "DELETE FROM mcp_connections WHERE organization_id = ? AND connector_id = ?",
+      organizationId,
+      connectorId,
+    );
+
+    const id = newId("mcpconn");
+    const tokenEncrypted = encrypt(body.token);
+    const authType = body.auth_type ?? connector.auth_type ?? "token";
+
+    await db.run(
+      "INSERT INTO mcp_connections (id, organization_id, connector_id, auth_type, token_encrypted, created_by_user_id) VALUES (?, ?, ?, ?, ?, ?)",
+      id,
+      organizationId,
+      connectorId,
+      authType,
+      tokenEncrypted,
+      user?.id ?? null,
+    );
+
+    await auditLog(
+      user?.id ?? null,
+      "connect",
+      "mcp_connector",
+      connectorId,
+      JSON.stringify({ auth_type: authType }),
+    );
+
+    const row = await db.get<{ id: string; connector_id: string; auth_type: string; created_at: string }>(
+      "SELECT id, connector_id, auth_type, created_at FROM mcp_connections WHERE id = ?",
+      id,
+    );
+
+    return c.json(
+      {
+        id: row!.id,
+        connector_id: row!.connector_id,
+        auth_type: row!.auth_type,
+        created_at: row!.created_at,
+      },
+      200,
+    );
+  });
+
+  app.openapi(disconnectConnectorRoute, async (c) => {
+    const { connectorId } = c.req.valid("param");
+    const user = await currentUser(c);
+    const organizationId = user?.organization_id ?? "org_default";
+
+    const db = await getDB();
+    await db.run(
+      "DELETE FROM mcp_connections WHERE organization_id = ? AND connector_id = ?",
+      organizationId,
+      connectorId,
+    );
+
+    await auditLog(
+      user?.id ?? null,
+      "disconnect",
+      "mcp_connector",
+      connectorId,
+    );
+
+    return c.json({ deleted: true }, 200);
   });
 }

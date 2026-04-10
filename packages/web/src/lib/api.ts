@@ -286,6 +286,7 @@ export interface MCPConnector {
   icon: string;
   category: string;
   auth_type: "oauth" | "token" | "none";
+  connected?: boolean;
 }
 
 export function listMCPConnectors(params?: {
@@ -299,4 +300,20 @@ export function listMCPConnectors(params?: {
 
 export function getMCPConnector(id: string) {
   return request<MCPConnector>(`/mcp/connectors/${id}`);
+}
+
+export function connectMCPConnector(id: string, token: string) {
+  return request<{ id: string; connector_id: string; auth_type: string; created_at: string }>(
+    `/mcp/connectors/${id}/connect`,
+    {
+      method: "POST",
+      body: JSON.stringify({ token }),
+    },
+  );
+}
+
+export function disconnectMCPConnector(id: string) {
+  return request<{ deleted: boolean }>(`/mcp/connectors/${id}/connect`, {
+    method: "DELETE",
+  });
 }

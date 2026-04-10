@@ -18,10 +18,15 @@ export async function initSchema(db: DbAdapter) {
   const INSERT_IGNORE_SUFFIX = db.dialect === "sqlite" ? "" : " ON CONFLICT DO NOTHING";
 
   const tables: string[] = [
+    // NB: the CHECK(type IN (...)) constraint was removed so that we can
+    // add new provider types (google, mistral, groq, …) without a
+    // painful SQLite table-rebuild migration. Validation lives in the
+    // zod schema at the API boundary — the DB stores whatever the
+    // caller sent as a free-form string.
     `CREATE TABLE IF NOT EXISTS llm_providers (
       id ${TEXT} PRIMARY KEY,
       name ${TEXT} NOT NULL,
-      type ${TEXT} NOT NULL CHECK(type IN ('anthropic', 'openai', 'openai-compatible', 'ollama')),
+      type ${TEXT} NOT NULL,
       api_key_encrypted ${TEXT},
       base_url ${TEXT},
       default_model ${TEXT},
@@ -212,6 +217,22 @@ export async function initSchema(db: DbAdapter) {
       ip_address ${TEXT},
       created_at ${TEXT} NOT NULL DEFAULT (${NOW})
     )`,
+
+    // Per-organization MCP connector credentials. One row per
+    // (organization, connector_id). The token is stored encrypted
+    // via lib/encryption (AES-256-GCM) and only decrypted inside the
+    // session engine just before it hits the MCP server.
+    `CREATE TABLE IF NOT EXISTS mcp_connections (
+      id ${TEXT} PRIMARY KEY,
+      organization_id ${TEXT} NOT NULL,
+      connector_id ${TEXT} NOT NULL,
+      auth_type ${TEXT} NOT NULL,
+      token_encrypted ${TEXT} NOT NULL,
+      created_by_user_id ${TEXT},
+      created_at ${TEXT} NOT NULL DEFAULT (${NOW}),
+      updated_at ${TEXT} NOT NULL DEFAULT (${NOW}),
+      UNIQUE(organization_id, connector_id)
+    )`,
   ];
 
   const indexes: string[] = [
@@ -243,4 +264,40 @@ export async function initSchema(db: DbAdapter) {
   for (const t of tables) await db.exec(t);
   for (const i of indexes) await db.exec(i);
   for (const s of seeds) await db.exec(s);
+
+  // ── Migrations ───────────────────────────────────────────────────
+  // Old databases may have the legacy CHECK(type IN ('anthropic',
+  // 'openai', 'openai-compatible', 'ollama')) constraint on
+  // llm_providers.type, which breaks inserts for the new google /
+  // mistral / groq provider types. SQLite can't ALTER-DROP a CHECK
+  // constraint, so we detect and rebuild the table. Postgres keeps
+  // the looser definition via CREATE TABLE IF NOT EXISTS.
+  if (db.dialect === "sqlite") {
+    try {
+      const row = await db.get<{ sql: string }>(
+        "SELECT sql FROM sqlite_master WHERE type='table' AND name='llm_providers'",
+      );
+      if (row?.sql && /CHECK\s*\(\s*type\s+IN/i.test(row.sql)) {
+        await db.exec("ALTER TABLE llm_providers RENAME TO llm_providers_old");
+        await db.exec(`CREATE TABLE llm_providers (
+          id TEXT PRIMARY KEY,
+          name TEXT NOT NULL,
+          type TEXT NOT NULL,
+          api_key_encrypted TEXT,
+          base_url TEXT,
+          default_model TEXT,
+          is_default INTEGER NOT NULL DEFAULT 0,
+          created_at TEXT NOT NULL DEFAULT (datetime('now')),
+          updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+        )`);
+        await db.exec(
+          "INSERT INTO llm_providers SELECT id, name, type, api_key_encrypted, base_url, default_model, is_default, created_at, updated_at FROM llm_providers_old",
+        );
+        await db.exec("DROP TABLE llm_providers_old");
+      }
+    } catch {
+      // Non-fatal — if the migration probe fails, the next insert
+      // either succeeds or the route returns a clear error.
+    }
+  }
 }
