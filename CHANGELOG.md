@@ -20,15 +20,23 @@ All notable changes to this project are documented here. Format follows [Keep a 
   - **docker-compose** — validates `docker-compose.yml` parses with `docker compose config -q` and checks all expected services are declared.
 
 #### Tests
-Started this cycle at zero server/cli tests. Ended at **240 total**:
+Started this cycle at zero server/cli tests. Ended at **241 total**:
 
 | Package | Files | Tests |
 |---|:---:|:---:|
 | `@open-managed-agents/server` | 19 | 143 |
 | `@open-managed-agents/web` | 12 | 90 |
 | `@open-managed-agents/cli` | 1 | 5 |
-| `@open-managed-agents/scenario-tests` | 1 | 2 |
-| **Total** | **33** | **240** |
+| `@open-managed-agents/scenario-tests` | 1 | 3 |
+| **Total** | **33** | **241** |
+
+All three LangWatch Scenario tests now pass end-to-end against the
+live server + real Anthropic provider + gpt-5-mini judge
+(~93 seconds wall clock): simple factual question, multi-turn
+clarification dialogue, and the new agent-builder chat refining a
+support-agent draft. Previously the multi-turn test was marked
+"pre-existing flake" but the real root cause was test-script
+misconfiguration (`maxTurns: 8` cut off the judge step), now fixed.
 
 Each new test file has a sibling `specs/*.feature` documenting the scenarios in Gherkin.
 
