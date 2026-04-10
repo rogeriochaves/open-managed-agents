@@ -1,7 +1,7 @@
-import { useState } from "react";
-import { useParams, Link } from "react-router-dom";
-import { useQuery } from "@tanstack/react-query";
-import { ArrowLeft, Archive, Copy, Check } from "lucide-react";
+import { useState, useEffect } from "react";
+import { useParams, Link, useNavigate } from "react-router-dom";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { ArrowLeft, Archive, Copy, Check, Pencil, Save, X } from "lucide-react";
 import { Button } from "../components/ui/button";
 import { Badge, statusVariant } from "../components/ui/badge";
 import { CodeBlock } from "../components/ui/code-block";
@@ -50,14 +50,87 @@ function agentToYaml(agent: any): string {
 
 export function AgentDetailPage() {
   const { agentId } = useParams<{ agentId: string }>();
+  const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const [configFormat, setConfigFormat] = useState<"yaml" | "json">("yaml");
   const [copied, setCopied] = useState(false);
+
+  // ── Edit mode state ───────────────────────────────────────────
+  const [isEditing, setIsEditing] = useState(false);
+  const [editName, setEditName] = useState("");
+  const [editDescription, setEditDescription] = useState("");
+  const [editSystem, setEditSystem] = useState("");
+  const [editModel, setEditModel] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [archiving, setArchiving] = useState(false);
+  const [editError, setEditError] = useState<string | null>(null);
 
   const { data: agent, isLoading } = useQuery({
     queryKey: ["agent", agentId],
     queryFn: () => api.getAgent(agentId!),
     enabled: !!agentId,
   });
+
+  // Seed the form fields whenever a new agent loads or we leave edit mode
+  useEffect(() => {
+    if (!agent) return;
+    setEditName(agent.name);
+    setEditDescription(agent.description ?? "");
+    setEditSystem(agent.system ?? "");
+    setEditModel(agent.model?.id ?? "");
+  }, [agent]);
+
+  const handleSave = async () => {
+    if (!agent) return;
+    setSaving(true);
+    setEditError(null);
+    try {
+      await api.updateAgent(agent.id, {
+        name: editName.trim(),
+        description: editDescription.trim() || null,
+        system: editSystem.trim() || null,
+        model: editModel.trim() || agent.model?.id,
+      } as any);
+      await queryClient.invalidateQueries({ queryKey: ["agent", agentId] });
+      setIsEditing(false);
+    } catch (err: any) {
+      setEditError(err?.message ?? "Failed to save changes");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleCancel = () => {
+    if (!agent) return;
+    setEditName(agent.name);
+    setEditDescription(agent.description ?? "");
+    setEditSystem(agent.system ?? "");
+    setEditModel(agent.model?.id ?? "");
+    setEditError(null);
+    setIsEditing(false);
+  };
+
+  const handleArchive = async () => {
+    if (!agent) return;
+    if (
+      !window.confirm(
+        `Archive agent "${agent.name}"? It will disappear from the active list. You can still view it with "Show archived" on the agents page.`,
+      )
+    ) {
+      return;
+    }
+    setArchiving(true);
+    try {
+      await api.archiveAgent(agent.id);
+      await queryClient.invalidateQueries({ queryKey: ["agents"] });
+      navigate("/agents");
+    } catch (err) {
+      setArchiving(false);
+      setEditError(
+        err instanceof Error ? err.message : "Failed to archive agent",
+      );
+    }
+  };
 
   const handleCopy = async () => {
     if (!agent) return;
@@ -113,50 +186,162 @@ export function AgentDetailPage() {
             </span>
           </div>
         </div>
-        <Button variant="ghost" size="sm">
-          <Archive className="h-3.5 w-3.5" />
-          Archive
-        </Button>
+        {isEditing ? (
+          <div className="flex items-center gap-2">
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={handleCancel}
+              disabled={saving}
+            >
+              <X className="h-3.5 w-3.5" />
+              Cancel
+            </Button>
+            <Button
+              variant="primary"
+              size="sm"
+              onClick={handleSave}
+              disabled={saving || !editName.trim()}
+            >
+              <Save className="h-3.5 w-3.5" />
+              {saving ? "Saving…" : "Save changes"}
+            </Button>
+          </div>
+        ) : (
+          <div className="flex items-center gap-2">
+            {status === "active" && (
+              <>
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => setIsEditing(true)}
+                >
+                  <Pencil className="h-3.5 w-3.5" />
+                  Edit
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={handleArchive}
+                  disabled={archiving}
+                >
+                  <Archive className="h-3.5 w-3.5" />
+                  {archiving ? "Archiving…" : "Archive"}
+                </Button>
+              </>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Content */}
       <div className="flex flex-1 overflow-hidden">
-        {/* Config panel */}
+        {/* Config / edit panel */}
         <div className="flex-1 overflow-y-auto">
-          {/* Format tabs */}
-          <div className="flex items-center border-b border-surface-border px-6">
-            {(["yaml", "json"] as const).map((fmt) => (
-              <button
-                key={fmt}
-                onClick={() => setConfigFormat(fmt)}
-                className={`cursor-pointer px-4 py-2.5 text-sm font-medium uppercase ${
-                  configFormat === fmt
-                    ? "border-b-2 border-accent-blue text-text-primary"
-                    : "text-text-muted hover:text-text-secondary"
-                }`}
-              >
-                {fmt}
-              </button>
-            ))}
-            <button
-              onClick={handleCopy}
-              className="ml-auto flex cursor-pointer items-center gap-1.5 px-3 py-2 text-xs text-text-muted hover:text-text-primary transition-colors"
-            >
-              {copied ? (
-                <Check className="h-3.5 w-3.5 text-green-400" />
-              ) : (
-                <Copy className="h-3.5 w-3.5" />
-              )}
-              {copied ? "Copied" : "Copy code"}
-            </button>
-          </div>
+          {isEditing ? (
+            <div className="p-6 space-y-5 max-w-2xl">
+              <label className="block">
+                <span className="text-xs font-medium uppercase tracking-wider text-text-muted">
+                  Name
+                </span>
+                <input
+                  type="text"
+                  value={editName}
+                  onChange={(e) => setEditName(e.target.value)}
+                  className="mt-1 w-full rounded-md border border-surface-border bg-surface-secondary px-3 py-2 text-sm text-text-primary focus:border-accent-blue focus:outline-none"
+                />
+              </label>
 
-          {/* Config content */}
-          <pre className="p-6 text-xs text-text-code font-mono whitespace-pre-wrap">
-            {configFormat === "yaml"
-              ? agentToYaml(agent)
-              : JSON.stringify(agent, null, 2)}
-          </pre>
+              <label className="block">
+                <span className="text-xs font-medium uppercase tracking-wider text-text-muted">
+                  Description
+                </span>
+                <input
+                  type="text"
+                  value={editDescription}
+                  onChange={(e) => setEditDescription(e.target.value)}
+                  placeholder="Optional"
+                  className="mt-1 w-full rounded-md border border-surface-border bg-surface-secondary px-3 py-2 text-sm text-text-primary placeholder:text-text-muted focus:border-accent-blue focus:outline-none"
+                />
+              </label>
+
+              <label className="block">
+                <span className="text-xs font-medium uppercase tracking-wider text-text-muted">
+                  Model
+                </span>
+                <input
+                  type="text"
+                  value={editModel}
+                  onChange={(e) => setEditModel(e.target.value)}
+                  placeholder="e.g. claude-sonnet-4-6, gpt-5-mini, gemini-2.5-flash"
+                  className="mt-1 w-full rounded-md border border-surface-border bg-surface-secondary px-3 py-2 text-sm text-text-primary placeholder:text-text-muted font-mono focus:border-accent-blue focus:outline-none"
+                />
+              </label>
+
+              <label className="block">
+                <span className="text-xs font-medium uppercase tracking-wider text-text-muted">
+                  System prompt
+                </span>
+                <textarea
+                  value={editSystem}
+                  onChange={(e) => setEditSystem(e.target.value)}
+                  rows={10}
+                  placeholder="You are a helpful assistant…"
+                  className="mt-1 w-full resize-y rounded-md border border-surface-border bg-surface-secondary px-3 py-2 text-sm text-text-primary placeholder:text-text-muted font-mono focus:border-accent-blue focus:outline-none"
+                />
+              </label>
+
+              {editError && (
+                <p className="text-xs text-red-600">{editError}</p>
+              )}
+
+              <p className="text-[11px] text-text-muted">
+                Tools, MCP servers, and skills are read-only for now — edit the
+                full config via{" "}
+                <code className="font-mono">
+                  PUT /v1/agents/{agent.id}
+                </code>
+                .
+              </p>
+            </div>
+          ) : (
+            <>
+              {/* Format tabs */}
+              <div className="flex items-center border-b border-surface-border px-6">
+                {(["yaml", "json"] as const).map((fmt) => (
+                  <button
+                    key={fmt}
+                    onClick={() => setConfigFormat(fmt)}
+                    className={`cursor-pointer px-4 py-2.5 text-sm font-medium uppercase ${
+                      configFormat === fmt
+                        ? "border-b-2 border-accent-blue text-text-primary"
+                        : "text-text-muted hover:text-text-secondary"
+                    }`}
+                  >
+                    {fmt}
+                  </button>
+                ))}
+                <button
+                  onClick={handleCopy}
+                  className="ml-auto flex cursor-pointer items-center gap-1.5 px-3 py-2 text-xs text-text-muted hover:text-text-primary transition-colors"
+                >
+                  {copied ? (
+                    <Check className="h-3.5 w-3.5 text-green-400" />
+                  ) : (
+                    <Copy className="h-3.5 w-3.5" />
+                  )}
+                  {copied ? "Copied" : "Copy code"}
+                </button>
+              </div>
+
+              {/* Config content */}
+              <pre className="p-6 text-xs text-text-code font-mono whitespace-pre-wrap">
+                {configFormat === "yaml"
+                  ? agentToYaml(agent)
+                  : JSON.stringify(agent, null, 2)}
+              </pre>
+            </>
+          )}
         </div>
 
         {/* Info sidebar */}
