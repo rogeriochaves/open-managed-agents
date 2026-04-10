@@ -415,7 +415,13 @@ export function QuickstartPage() {
   const [isCreating, setIsCreating] = useState(false);
   const [selectedMCPConnectors, setSelectedMCPConnectors] = useState<string[]>([]);
   const [selectedProviderId, setSelectedProviderId] = useState<string | null>(null);
-  const [selectedModel, setSelectedModel] = useState<string>("claude-sonnet-4-6");
+  // Empty string = "use the resolved selectedProvider's default_model".
+  // We avoid hardcoding a specific model here because the default
+  // provider is chosen at runtime from the seed — hardcoding the
+  // Anthropic model here means a user whose default provider is
+  // OpenAI sees the banner "Using OpenAI · claude-sonnet-4-6" until
+  // they manually interact with the provider picker.
+  const [selectedModel, setSelectedModel] = useState<string>("");
   const [showProviderDropdown, setShowProviderDropdown] = useState(false);
 
   // ── Agent builder chat state ─────────────────────────────────────
@@ -447,6 +453,19 @@ export function QuickstartPage() {
     enabled: !!selectedProvider,
   });
   const availableModels = modelsData?.models ?? [];
+
+  // When the resolved selectedProvider changes (including the first
+  // time providers load), snap selectedModel to that provider's
+  // default_model so the banner/dropdown reflect the actually-used
+  // model. The guard on selectedModel avoids clobbering a model
+  // the user has explicitly picked.
+  useEffect(() => {
+    if (!selectedProvider) return;
+    if (selectedModel && availableModels.includes(selectedModel)) return;
+    if (selectedModel === selectedProvider.default_model) return;
+    setSelectedModel(selectedProvider.default_model ?? "");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedProvider?.id]);
 
   const filteredTemplates = useMemo(() => {
     if (!searchQuery.trim()) return TEMPLATES;
@@ -562,7 +581,7 @@ export function QuickstartPage() {
       const agent = await api.createAgent({
         name: builderDraft.name,
         description: builderDraft.description ?? "",
-        model: selectedModel || "claude-sonnet-4-6",
+        model: selectedModel || selectedProvider?.default_model || "claude-sonnet-4-6",
         system: builderDraft.system ?? "You are a helpful assistant.",
         mcp_servers: builderDraft.mcp_servers ?? [],
         skills: builderDraft.skills ?? [],
@@ -623,7 +642,7 @@ export function QuickstartPage() {
     const draftConfig = {
       name: builderDraft.name,
       description: builderDraft.description,
-      model: selectedModel || "claude-sonnet-4-6",
+      model: selectedModel || selectedProvider?.default_model || "claude-sonnet-4-6",
       system: builderDraft.system,
       mcp_servers: builderDraft.mcp_servers ?? [],
       skills: builderDraft.skills ?? [],
