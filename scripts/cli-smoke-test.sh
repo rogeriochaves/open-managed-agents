@@ -33,15 +33,25 @@ if ! curl -sSf -o /dev/null "$OMA_API_BASE/v1/auth/me"; then
 fi
 echo "✓ Server reachable"
 
-# 1. Agents list (table output)
+# 1. Agents list (table output; OK even if empty)
 if ! node "$CLI_BIN" agents list --limit 3 >/dev/null 2>&1; then
   echo "✗ oma agents list failed"
   exit 1
 fi
 echo "✓ oma agents list"
 
-# 2. Agents list (JSON output)
-if ! node "$CLI_BIN" --output json agents list --limit 1 | grep -q '"id":'; then
+# 2. Create an agent so subsequent JSON test has real data
+if ! node "$CLI_BIN" agents create \
+  --name "smoke-test-agent-$$" \
+  --model "claude-sonnet-4-6" \
+  --system "smoke test agent" >/dev/null 2>&1; then
+  echo "✗ oma agents create failed"
+  exit 1
+fi
+echo "✓ oma agents create"
+
+# 3. Agents list (JSON output must now include at least one agent)
+if ! node "$CLI_BIN" --output json agents list --limit 5 | grep -q '"id":'; then
   echo "✗ oma agents list --output json did not return valid JSON"
   exit 1
 fi
