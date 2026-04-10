@@ -208,6 +208,39 @@ export function archiveVault(id: string) {
   return request<void>(`/vaults/${id}`, { method: "DELETE" });
 }
 
+// ── Vault credentials ──────────────────────────────────────────────────
+
+export interface VaultCredential {
+  id: string;
+  vault_id: string;
+  name: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export function listVaultCredentials(vaultId: string) {
+  return request<{ data: VaultCredential[] }>(
+    `/vaults/${vaultId}/credentials`,
+  );
+}
+
+export function createVaultCredential(
+  vaultId: string,
+  params: { name: string; value: string },
+) {
+  return request<VaultCredential>(`/vaults/${vaultId}/credentials`, {
+    method: "POST",
+    body: JSON.stringify(params),
+  });
+}
+
+export function deleteVaultCredential(vaultId: string, credentialId: string) {
+  return request<{ deleted: boolean }>(
+    `/vaults/${vaultId}/credentials/${credentialId}`,
+    { method: "DELETE" },
+  );
+}
+
 // ── Providers ──────────────────────────────────────────────────────────────
 
 export interface LLMProvider {
