@@ -155,3 +155,31 @@ jobs:
             || (echo "✗ external postgres mode missing DATABASE_URL"; exit 1)
 
           echo "All helm render modes look correct."
+
+  docker-compose:
+    name: docker-compose config validation
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Write an empty .env so env_file resolves
+        run: touch .env
+
+      - name: Validate docker-compose.yml parses
+        # -q silences output so secrets (if any) never land in CI logs
+        run: docker compose -f docker-compose.yml config -q
+
+      - name: Assert expected services are declared
+        run: |
+          SERVICES=$(docker compose -f docker-compose.yml config --services | sort)
+          echo "services: $SERVICES"
+          for expected in postgres server web; do
+            if ! echo "$SERVICES" | grep -qx "$expected"; then
+              echo "✗ docker-compose.yml is missing service: $expected"
+              exit 1
+            fi
+          done
+          echo "All expected services present."
