@@ -94,3 +94,64 @@ jobs:
           OMA_API_BASE=http://localhost:3099 ./scripts/cli-smoke-test.sh
 
           kill $SERVER_PID || true
+
+  helm:
+    name: Helm chart lint + render
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Helm
+        uses: azure/setup-helm@v4
+        with:
+          version: v3.18.3
+
+      - name: Lint the chart
+        run: helm lint helm/open-managed-agents
+
+      - name: Render with default values (embedded postgres)
+        run: helm template oma-ci helm/open-managed-agents > /tmp/out-postgres.yaml
+
+      - name: Render with sqlite
+        run: |
+          helm template oma-ci helm/open-managed-agents \
+            --set database.type=sqlite > /tmp/out-sqlite.yaml
+
+      - name: Render with external postgres URL
+        run: |
+          helm template oma-ci helm/open-managed-agents \
+            --set database.type=postgres \
+            --set database.postgres.embedded=false \
+            --set database.postgres.url="postgres://u:p@external:5432/oma" \
+            > /tmp/out-external.yaml
+
+      - name: Smoke-check rendered manifests
+        run: |
+          # Each mode should produce at least one Deployment and one Service
+          for f in /tmp/out-postgres.yaml /tmp/out-sqlite.yaml /tmp/out-external.yaml; do
+            if ! grep -q "^kind: Deployment" "$f"; then
+              echo "✗ $f is missing a Deployment"
+              exit 1
+            fi
+            if ! grep -q "^kind: Service" "$f"; then
+              echo "✗ $f is missing a Service"
+              exit 1
+            fi
+          done
+
+          # postgres (embedded) → StatefulSet present
+          grep -q "^kind: StatefulSet" /tmp/out-postgres.yaml \
+            || (echo "✗ embedded postgres mode missing StatefulSet"; exit 1)
+
+          # sqlite → PVC for data volume present
+          grep -q "^kind: PersistentVolumeClaim" /tmp/out-sqlite.yaml \
+            || (echo "✗ sqlite mode missing PVC"; exit 1)
+
+          # external postgres → DATABASE_URL wired into the Secret
+          grep -q "DATABASE_URL" /tmp/out-external.yaml \
+            || (echo "✗ external postgres mode missing DATABASE_URL"; exit 1)
+
+          echo "All helm render modes look correct."
