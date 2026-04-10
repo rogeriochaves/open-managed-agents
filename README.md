@@ -90,11 +90,11 @@ Every claim in this README is backed by an automated test. Running `pnpm test` e
 
 | Package | Tests | What it covers |
 |---|:---:|---|
-| `@open-managed-agents/server` | 97 | Health, auth flow (login/logout/change-password), agents (create/update/archive + metadata merge + versioning), sessions + events, providers CRUD (Anthropic/OpenAI/OpenAI-compatible/Ollama), environments + MCP discovery, vaults + AES-256-GCM encryption round-trip, usage & cost aggregation, governance IAC config loading, governance direct CRUD (orgs/teams/projects/members/policies/users/audit), Postgres SQL placeholder translator, automatic audit log writes on every mutation |
+| `@open-managed-agents/server` | 102 | Health, auth flow (login/logout/change-password), agents (create/update/archive + metadata merge + versioning), sessions + events + archive + cascade delete, providers CRUD (Anthropic/OpenAI/OpenAI-compatible/Ollama), environments + MCP discovery + delete, vaults + AES-256-GCM encryption round-trip + archive + delete, usage & cost aggregation, governance IAC config loading, governance direct CRUD (orgs/teams/projects/members/policies/users/audit), Postgres SQL placeholder translator, automatic audit log writes on every mutation |
 | `@open-managed-agents/web` | 88 | Sidebar, quickstart wizard, agents/sessions/environments/vaults/settings/usage pages, session detail with SSE streaming, API key dialog, MCP connector browser |
 | `@open-managed-agents/cli` | 5 | Client points at self-hosted server, not `api.anthropic.com`; API key precedence |
 | `@open-managed-agents/scenario-tests` | 2 | End-to-end agent creation flow against a live LLM via LangWatch Scenario (opt-in with `OMA_SCENARIO_ENABLED=1`) |
-| **Total** | **192** | |
+| **Total** | **197** | |
 
 GitHub Actions runs typecheck + tests + build + helm-lint on every PR, plus a smoke-test job that boots the production server with SQLite and drives the compiled `oma` binary against it end-to-end. See [`.github/workflows/ci.yml`](.github/workflows/ci.yml).
 
