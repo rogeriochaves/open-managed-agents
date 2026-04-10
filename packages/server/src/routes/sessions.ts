@@ -11,7 +11,7 @@ import { pageCursorResponse } from "../schemas/common.js";
 import { getDB, newId } from "../db/index.js";
 import { auditLog } from "./governance.js";
 import { currentUser, currentUserId } from "../lib/current-user.js";
-import { canUseProvider } from "../lib/access-control.js";
+import { canUseProvider, canUseConnector } from "../lib/access-control.js";
 
 const tags = ["Sessions"];
 
@@ -160,11 +160,10 @@ export function registerSessionRoutes(app: OpenAPIHono) {
       throw Object.assign(new Error(`Agent ${agentId} not found`), { status: 404, type: "not_found" });
     }
 
-    // Enforce team_provider_access: the caller must be allowed to use
-    // the provider the agent was built against. Admins and
-    // unauthenticated requests (auth disabled) bypass this check.
+    // Enforce team_provider_access + team_mcp_policies. Admins and
+    // unauthenticated requests (auth disabled) bypass these checks.
+    const user = await currentUser(c);
     if (agent.model_provider_id) {
-      const user = await currentUser(c);
       const allowed = await canUseProvider({
         db,
         userId: user?.id ?? null,
@@ -174,6 +173,27 @@ export function registerSessionRoutes(app: OpenAPIHono) {
       if (!allowed) {
         throw Object.assign(
           new Error(`Not authorized to use provider ${agent.model_provider_id}`),
+          { status: 403, type: "forbidden" }
+        );
+      }
+    }
+
+    const agentMcps = JSON.parse(agent.mcp_servers ?? "[]") as Array<{
+      name?: string;
+    }>;
+    for (const mcp of agentMcps) {
+      if (!mcp?.name) continue;
+      const allowed = await canUseConnector({
+        db,
+        userId: user?.id ?? null,
+        userRole: user?.role ?? null,
+        connectorId: mcp.name,
+      });
+      if (!allowed) {
+        throw Object.assign(
+          new Error(
+            `MCP connector "${mcp.name}" is blocked for your team(s)`
+          ),
           { status: 403, type: "forbidden" }
         );
       }

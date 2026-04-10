@@ -195,3 +195,123 @@ describe("Team-scoped provider access enforcement", () => {
     expect(res.status).toBe(200);
   });
 });
+
+describe("Team-scoped MCP connector enforcement", () => {
+  let mcpAgentId: string;
+
+  beforeAll(async () => {
+    // Create a second agent that attaches a slack MCP connector
+    const agentRes = await app.request("/v1/agents", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        cookie: `oma_session=${adminCookie}`,
+      },
+      body: JSON.stringify({
+        name: "slack-agent",
+        model: "claude-sonnet-4-6",
+        model_provider_id: "provider_restricted",
+        mcp_servers: [
+          { type: "url", name: "slack", url: "https://mcp.slack.com/sse" },
+        ],
+      }),
+    });
+    const agent = (await agentRes.json()) as { id: string };
+    mcpAgentId = agent.id;
+  });
+
+  it("allows by default when no policy row exists", async () => {
+    const res = await app.request("/v1/sessions", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        cookie: `oma_session=${regularUserCookie}`,
+      },
+      body: JSON.stringify({
+        agent: mcpAgentId,
+        environment_id: "env_default",
+      }),
+    });
+    expect(res.status).toBe(200);
+  });
+
+  it("denies with 403 once the team blocks the connector", async () => {
+    // Admin blocks slack for the Engineering team
+    const policyRes = await app.request(
+      `/v1/teams/${teamId}/mcp-policies`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          cookie: `oma_session=${adminCookie}`,
+        },
+        body: JSON.stringify({ connector_id: "slack", policy: "blocked" }),
+      }
+    );
+    expect(policyRes.status).toBe(200);
+
+    const res = await app.request("/v1/sessions", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        cookie: `oma_session=${regularUserCookie}`,
+      },
+      body: JSON.stringify({
+        agent: mcpAgentId,
+        environment_id: "env_default",
+      }),
+    });
+    expect(res.status).toBe(403);
+  });
+
+  it("also denies when the policy is 'requires_approval' (no approval flow yet)", async () => {
+    await app.request(`/v1/teams/${teamId}/mcp-policies`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        cookie: `oma_session=${adminCookie}`,
+      },
+      body: JSON.stringify({
+        connector_id: "slack",
+        policy: "requires_approval",
+      }),
+    });
+
+    const res = await app.request("/v1/sessions", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        cookie: `oma_session=${regularUserCookie}`,
+      },
+      body: JSON.stringify({
+        agent: mcpAgentId,
+        environment_id: "env_default",
+      }),
+    });
+    expect(res.status).toBe(403);
+  });
+
+  it("re-allows once the team explicitly grants the connector", async () => {
+    await app.request(`/v1/teams/${teamId}/mcp-policies`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        cookie: `oma_session=${adminCookie}`,
+      },
+      body: JSON.stringify({ connector_id: "slack", policy: "allowed" }),
+    });
+
+    const res = await app.request("/v1/sessions", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        cookie: `oma_session=${regularUserCookie}`,
+      },
+      body: JSON.stringify({
+        agent: mcpAgentId,
+        environment_id: "env_default",
+      }),
+    });
+    expect(res.status).toBe(200);
+  });
+});

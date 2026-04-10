@@ -53,3 +53,56 @@ export async function canUseProvider(
   );
   return rows.length > 0;
 }
+
+export interface ConnectorCheckInput {
+  db: DbAdapter;
+  userId: string | null;
+  userRole: string | null;
+  connectorId: string;
+}
+
+/**
+ * Check whether the caller is allowed to use an MCP connector.
+ *
+ * Unlike canUseProvider (which requires a positive grant), connectors
+ * default to ALLOWED unless an explicit policy blocks them. This keeps
+ * existing installs backward-compatible — adding enforcement should not
+ * suddenly break every session with an MCP server attached.
+ *
+ * Policies are per-team and can be "allowed", "blocked", or
+ * "requires_approval". For now, "requires_approval" is treated as
+ * blocked because there is no approval workflow wired up yet.
+ *
+ * Semantics:
+ * - Unauthenticated / auth disabled / admin → always allowed.
+ * - If ANY of the user's team memberships has a "blocked" or
+ *   "requires_approval" policy for this connector → denied.
+ * - Otherwise → allowed (including the "no policy row exists" case).
+ */
+export async function canUseConnector(
+  input: ConnectorCheckInput
+): Promise<boolean> {
+  if (!input.userId) return true;
+  if (input.userRole === "admin") return true;
+
+  const rows = await input.db.all<any>(
+    `SELECT tmp.policy
+     FROM team_mcp_policies tmp
+     JOIN team_members tm ON tm.team_id = tmp.team_id
+     WHERE tm.user_id = ?
+       AND tmp.connector_id = ?`,
+    input.userId,
+    input.connectorId
+  );
+
+  if (rows.length === 0) return true;
+
+  // If ANY team blocks it, it is blocked. Conservative by design —
+  // a single blocked policy in any membership wins over any number
+  // of explicit "allowed" policies. This prevents a user from
+  // escalating by joining a team with a laxer policy.
+  const hasBlock = rows.some(
+    (r) => r.policy === "blocked" || r.policy === "requires_approval"
+  );
+  return !hasBlock;
+}
