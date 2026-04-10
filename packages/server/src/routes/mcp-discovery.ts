@@ -3,6 +3,7 @@ import { getDB, newId } from "../db/index.js";
 import { encrypt } from "../lib/encryption.js";
 import { currentUser } from "../lib/current-user.js";
 import { auditLog } from "./governance.js";
+import { listMCPTools, loadConnectorToken, MCPClientError } from "../lib/mcp-client.js";
 
 const tags = ["MCP Discovery"];
 
@@ -259,6 +260,55 @@ const connectConnectorRoute = createRoute({
   },
 });
 
+const listConnectorToolsRoute = createRoute({
+  method: "get",
+  path: "/v1/mcp/connectors/{connectorId}/tools",
+  tags,
+  summary:
+    "List the live tool catalog of a connected MCP server (real round trip)",
+  request: {
+    params: z.object({ connectorId: z.string() }),
+  },
+  responses: {
+    200: {
+      description: "Tool list fetched from the MCP server",
+      content: {
+        "application/json": {
+          schema: z.object({
+            data: z.array(
+              z.object({
+                name: z.string(),
+                description: z.string().optional(),
+                input_schema: z.record(z.unknown()),
+              }),
+            ),
+          }),
+        },
+      },
+    },
+    401: {
+      description: "MCP server rejected the stored credential",
+      content: {
+        "application/json": {
+          schema: z.object({
+            error: z.object({ type: z.string(), message: z.string() }),
+          }),
+        },
+      },
+    },
+    502: {
+      description: "Could not reach the MCP server",
+      content: {
+        "application/json": {
+          schema: z.object({
+            error: z.object({ type: z.string(), message: z.string() }),
+          }),
+        },
+      },
+    },
+  },
+});
+
 const disconnectConnectorRoute = createRoute({
   method: "delete",
   path: "/v1/mcp/connectors/{connectorId}/connect",
@@ -403,6 +453,35 @@ export function registerMCPDiscoveryRoutes(app: OpenAPIHono) {
       },
       200,
     );
+  });
+
+  app.openapi(listConnectorToolsRoute, async (c) => {
+    const { connectorId } = c.req.valid("param");
+    const connector = CONNECTORS.find((r) => r.id === connectorId);
+    if (!connector) {
+      throw Object.assign(
+        new Error(`Connector ${connectorId} not found`),
+        { status: 404, type: "not_found" },
+      );
+    }
+
+    const user = await currentUser(c);
+    const organizationId = user?.organization_id ?? "org_default";
+    const token = await loadConnectorToken(organizationId, connectorId);
+
+    try {
+      const tools = await listMCPTools(connector.url, token);
+      return c.json({ data: tools }, 200);
+    } catch (err) {
+      if (err instanceof MCPClientError) {
+        const status = err.status === 401 ? 401 : 502;
+        return c.json(
+          { error: { type: err.type, message: err.message } },
+          status,
+        );
+      }
+      throw err;
+    }
   });
 
   app.openapi(disconnectConnectorRoute, async (c) => {
