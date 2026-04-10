@@ -84,6 +84,61 @@ export function SettingsPage() {
   });
   const connectors = connectorsData?.data ?? [];
 
+  // ── Governance mutations ──────────────────────────────────────────
+  const setProviderAccessMut = useMutation({
+    mutationFn: async (params: {
+      providerId: string;
+      enabled: boolean;
+      rate_limit_rpm?: number | null;
+      monthly_budget_usd?: number | null;
+    }) => {
+      const res = await fetch(`/v1/teams/${activeTeamId}/provider-access`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
+          provider_id: params.providerId,
+          enabled: params.enabled,
+          rate_limit_rpm: params.rate_limit_rpm ?? null,
+          monthly_budget_usd: params.monthly_budget_usd ?? null,
+        }),
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      return res.json();
+    },
+    onSuccess: () =>
+      queryClient.invalidateQueries({ queryKey: ["provider-access", activeTeamId] }),
+  });
+
+  const setMcpPolicyMut = useMutation({
+    mutationFn: async (params: {
+      connectorId: string;
+      policy: "allowed" | "blocked" | "requires_approval";
+    }) => {
+      const res = await fetch(`/v1/teams/${activeTeamId}/mcp-policies`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
+          connector_id: params.connectorId,
+          policy: params.policy,
+        }),
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      return res.json();
+    },
+    onSuccess: () =>
+      queryClient.invalidateQueries({ queryKey: ["mcp-policies", activeTeamId] }),
+  });
+
+  const nextPolicy = (
+    p: "allowed" | "blocked" | "requires_approval",
+  ): "allowed" | "blocked" | "requires_approval" => {
+    if (p === "allowed") return "blocked";
+    if (p === "blocked") return "requires_approval";
+    return "allowed";
+  };
+
   // ── Renders ────────────────────────────────────────────────────────
 
   const renderProviders = () => (
@@ -226,52 +281,151 @@ export function SettingsPage() {
 
       {activeTeamId && (
         <>
-          {/* Provider access */}
+          {/* Provider access — now interactive ────────────────── */}
           <div className="mb-6">
             <h3 className="text-sm font-medium text-text-primary mb-2 flex items-center gap-2">
               <Key className="h-4 w-4" /> Provider Access
             </h3>
+            <p className="text-xs text-text-muted mb-3">
+              Click the toggle to grant or revoke a team's access to an LLM provider. Optional RPM and monthly budget caps apply on the enforcement path at session create time.
+            </p>
             <div className="space-y-2">
               {providers.map((p) => {
-                const access = providerAccess.find((a: any) => a.provider_id === p.id);
+                const access = providerAccess.find(
+                  (a: any) => a.provider_id === p.id,
+                );
+                const enabled = access?.enabled === true || access?.enabled === 1;
                 return (
-                  <div key={p.id} className="flex items-center gap-3 rounded-md border border-surface-border bg-surface-card px-3 py-2">
-                    <span className="text-sm text-text-primary flex-1">{p.name}</span>
-                    {access ? (
-                      <>
-                        <Badge variant={access.enabled ? "active" : "terminated"}>
-                          {access.enabled ? "Enabled" : "Disabled"}
-                        </Badge>
-                        {access.rate_limit_rpm && (
-                          <span className="text-xs text-text-muted">{access.rate_limit_rpm} RPM</span>
-                        )}
-                        {access.monthly_budget_usd && (
-                          <span className="text-xs text-text-muted">${access.monthly_budget_usd}/mo</span>
-                        )}
-                      </>
-                    ) : (
-                      <Badge variant="default">Not configured</Badge>
-                    )}
+                  <div
+                    key={p.id}
+                    className="flex items-center gap-3 rounded-md border border-surface-border bg-surface-card px-3 py-2"
+                  >
+                    <span className="text-sm text-text-primary flex-1">
+                      {p.name}
+                    </span>
+                    <input
+                      key={`rpm-${p.id}-${access?.rate_limit_rpm ?? "none"}`}
+                      type="number"
+                      min={0}
+                      defaultValue={access?.rate_limit_rpm ?? ""}
+                      placeholder="RPM"
+                      title="Rate limit (requests per minute)"
+                      className="w-20 rounded-md border border-surface-border bg-surface-secondary px-2 py-1 text-xs text-text-primary placeholder:text-text-muted focus:border-accent-blue focus:outline-none"
+                      onBlur={(e) => {
+                        const v = e.target.value
+                          ? Number(e.target.value)
+                          : null;
+                        if (v === (access?.rate_limit_rpm ?? null)) return;
+                        setProviderAccessMut.mutate({
+                          providerId: p.id,
+                          enabled,
+                          rate_limit_rpm: v,
+                          monthly_budget_usd: access?.monthly_budget_usd ?? null,
+                        });
+                      }}
+                    />
+                    <div className="flex items-center text-xs text-text-muted">
+                      <span className="mr-1">$</span>
+                      <input
+                        key={`budget-${p.id}-${access?.monthly_budget_usd ?? "none"}`}
+                        type="number"
+                        min={0}
+                        defaultValue={access?.monthly_budget_usd ?? ""}
+                        placeholder="budget"
+                        title="Monthly budget in USD"
+                        className="w-20 rounded-md border border-surface-border bg-surface-secondary px-2 py-1 text-xs text-text-primary placeholder:text-text-muted focus:border-accent-blue focus:outline-none"
+                        onBlur={(e) => {
+                          const v = e.target.value
+                            ? Number(e.target.value)
+                            : null;
+                          if (v === (access?.monthly_budget_usd ?? null)) return;
+                          setProviderAccessMut.mutate({
+                            providerId: p.id,
+                            enabled,
+                            rate_limit_rpm: access?.rate_limit_rpm ?? null,
+                            monthly_budget_usd: v,
+                          });
+                        }}
+                      />
+                      <span className="ml-1">/mo</span>
+                    </div>
+                    <button
+                      onClick={() =>
+                        setProviderAccessMut.mutate({
+                          providerId: p.id,
+                          enabled: !enabled,
+                          rate_limit_rpm: access?.rate_limit_rpm ?? null,
+                          monthly_budget_usd: access?.monthly_budget_usd ?? null,
+                        })
+                      }
+                      className="cursor-pointer"
+                      title={enabled ? "Revoke access" : "Grant access"}
+                    >
+                      <Badge
+                        variant={
+                          enabled
+                            ? "active"
+                            : access
+                              ? "terminated"
+                              : "default"
+                        }
+                      >
+                        {enabled
+                          ? "Enabled"
+                          : access
+                            ? "Disabled"
+                            : "Not set"}
+                      </Badge>
+                    </button>
                   </div>
                 );
               })}
             </div>
           </div>
 
-          {/* MCP policies */}
+          {/* MCP policies — now interactive ─────────────────────── */}
           <div>
             <h3 className="text-sm font-medium text-text-primary mb-2 flex items-center gap-2">
               <Shield className="h-4 w-4" /> MCP Integration Policies
             </h3>
+            <p className="text-xs text-text-muted mb-3">
+              Click a policy badge to cycle through <strong>allowed</strong> → <strong>blocked</strong> → <strong>requires_approval</strong>. "Not set" defaults to allowed for backward compat.
+            </p>
             <div className="grid grid-cols-2 gap-2">
               {connectors.map((c) => {
-                const policy = mcpPolicies.find((p: any) => p.connector_id === c.id);
-                const policyValue = policy?.policy ?? "allowed";
-                const variant = policyValue === "allowed" ? "active" : policyValue === "blocked" ? "terminated" : "rescheduling";
+                const policy = mcpPolicies.find(
+                  (p: any) => p.connector_id === c.id,
+                );
+                const policyValue = (policy?.policy ?? "allowed") as
+                  | "allowed"
+                  | "blocked"
+                  | "requires_approval";
+                const variant =
+                  policyValue === "allowed"
+                    ? "active"
+                    : policyValue === "blocked"
+                      ? "terminated"
+                      : "rescheduling";
                 return (
-                  <div key={c.id} className="flex items-center gap-2 rounded-md border border-surface-border bg-surface-card px-3 py-2">
-                    <span className="text-sm text-text-primary flex-1">{c.name}</span>
-                    <Badge variant={variant as any}>{policyValue}</Badge>
+                  <div
+                    key={c.id}
+                    className="flex items-center gap-2 rounded-md border border-surface-border bg-surface-card px-3 py-2"
+                  >
+                    <span className="text-sm text-text-primary flex-1">
+                      {c.name}
+                    </span>
+                    <button
+                      onClick={() =>
+                        setMcpPolicyMut.mutate({
+                          connectorId: c.id,
+                          policy: nextPolicy(policyValue),
+                        })
+                      }
+                      className="cursor-pointer"
+                      title="Click to cycle policy"
+                    >
+                      <Badge variant={variant as any}>{policyValue}</Badge>
+                    </button>
                   </div>
                 );
               })}

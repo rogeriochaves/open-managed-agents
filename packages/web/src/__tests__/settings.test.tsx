@@ -63,7 +63,50 @@ describe("SettingsPage", () => {
       ],
     });
 
-    mockFetch.mockImplementation((url: string) => {
+    mockFetch.mockImplementation((url: string, init?: any) => {
+      // Order matters: more-specific paths first. /provider-access
+      // and /mcp-policies are under /v1/teams/:id/, so we have to
+      // match them BEFORE the generic /teams branch.
+      if (url.includes("/provider-access")) {
+        if (init?.method === "POST") {
+          return Promise.resolve({ ok: true, json: async () => ({}) });
+        }
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            data: [
+              {
+                id: "tpa_1",
+                team_id: "team_default",
+                provider_id: "provider_anthropic",
+                enabled: true,
+                rate_limit_rpm: 1000,
+                monthly_budget_usd: 500,
+                created_at: "2026-04-10T00:00:00Z",
+              },
+            ],
+          }),
+        });
+      }
+      if (url.includes("/mcp-policies")) {
+        if (init?.method === "POST") {
+          return Promise.resolve({ ok: true, json: async () => ({}) });
+        }
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            data: [
+              {
+                id: "pol_1",
+                team_id: "team_default",
+                connector_id: "slack",
+                policy: "allowed",
+                created_at: "2026-04-10T00:00:00Z",
+              },
+            ],
+          }),
+        });
+      }
       if (url.includes("/organizations") && !url.includes("/teams")) {
         return Promise.resolve({
           json: async () => ({
@@ -111,38 +154,6 @@ describe("SettingsPage", () => {
                 description: null,
                 created_at: "2026-04-10T00:00:00Z",
                 updated_at: "2026-04-10T00:00:00Z",
-              },
-            ],
-          }),
-        });
-      }
-      if (url.includes("/provider-access")) {
-        return Promise.resolve({
-          json: async () => ({
-            data: [
-              {
-                id: "tpa_1",
-                team_id: "team_default",
-                provider_id: "provider_anthropic",
-                enabled: true,
-                rate_limit_rpm: 1000,
-                monthly_budget_usd: 500,
-                created_at: "2026-04-10T00:00:00Z",
-              },
-            ],
-          }),
-        });
-      }
-      if (url.includes("/mcp-policies")) {
-        return Promise.resolve({
-          json: async () => ({
-            data: [
-              {
-                id: "pol_1",
-                team_id: "team_default",
-                connector_id: "slack",
-                policy: "allowed",
-                created_at: "2026-04-10T00:00:00Z",
               },
             ],
           }),
@@ -214,5 +225,87 @@ describe("SettingsPage", () => {
       expect(screen.getByText("Provider Access")).toBeInTheDocument();
     });
     expect(screen.getByText("MCP Integration Policies")).toBeInTheDocument();
+  });
+
+  it("renders interactive RPM / budget inputs on Governance tab", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await user.click(screen.getByRole("button", { name: /Governance/i }));
+    // Wait for the async provider-access fetch to land
+    await waitFor(
+      () => {
+        expect(screen.getByDisplayValue("1000")).toBeInTheDocument();
+      },
+      { timeout: 3000 },
+    );
+    expect(screen.getByDisplayValue("500")).toBeInTheDocument();
+  });
+
+  it("toggles provider access by POSTing to /v1/teams/:teamId/provider-access", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await user.click(screen.getByRole("button", { name: /Governance/i }));
+
+    // Wait for the Anthropic row's Enabled badge to render
+    const enabledSpan = await screen.findByText(
+      "Enabled",
+      {},
+      { timeout: 3000 },
+    );
+    const enabledBtn = enabledSpan.closest("button");
+    expect(enabledBtn).not.toBeNull();
+    await user.click(enabledBtn!);
+
+    await waitFor(() => {
+      const postCalls = mockFetch.mock.calls.filter(
+        ([url, init]) =>
+          typeof url === "string" &&
+          url.includes("/provider-access") &&
+          init?.method === "POST",
+      );
+      expect(postCalls.length).toBeGreaterThan(0);
+      const [, init] = postCalls[0]!;
+      const body = JSON.parse((init as any).body);
+      expect(body.provider_id).toBe("provider_anthropic");
+      expect(body.enabled).toBe(false);
+    });
+  });
+
+  it("cycles MCP policy on badge click", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await user.click(screen.getByRole("button", { name: /Governance/i }));
+
+    // The Slack policy starts as "allowed". Multiple elements match
+    // (the explainer <strong> + the badge span), so find the one
+    // inside a button — that's the clickable badge.
+    await waitFor(
+      () => {
+        const badges = screen.getAllByText("allowed");
+        const inBtn = badges.find((el) => el.closest("button"));
+        expect(inBtn).toBeTruthy();
+      },
+      { timeout: 3000 },
+    );
+    const policyBtn = screen
+      .getAllByText("allowed")
+      .find((el) => el.closest("button"))!
+      .closest("button");
+    expect(policyBtn).not.toBeNull();
+    await user.click(policyBtn!);
+
+    await waitFor(() => {
+      const postCalls = mockFetch.mock.calls.filter(
+        ([url, init]) =>
+          typeof url === "string" &&
+          url.includes("/mcp-policies") &&
+          init?.method === "POST",
+      );
+      expect(postCalls.length).toBeGreaterThan(0);
+      const [, init] = postCalls[0]!;
+      const body = JSON.parse((init as any).body);
+      expect(body.connector_id).toBe("slack");
+      expect(body.policy).toBe("blocked");
+    });
   });
 });
