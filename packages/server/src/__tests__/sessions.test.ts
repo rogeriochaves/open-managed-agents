@@ -228,4 +228,53 @@ describe("Sessions + events", () => {
     );
     expect(res.status).toBe(404);
   });
+
+  it("stops a session via POST /v1/sessions/:id/stop", async () => {
+    // Create a fresh session so other tests don't race against it
+    const createRes = await app.request("/v1/sessions", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        agent: agentId,
+        environment_id: "env_default",
+        title: "Stoppable session",
+      }),
+    });
+    const created = (await createRes.json()) as { id: string; status: string };
+    // New sessions start idle — mark it running first so Stop has
+    // something to transition away from (simulates the engine having
+    // just kicked off a turn).
+    const { getDB } = await import("../db/index.js");
+    const db = await getDB();
+    await db.run("UPDATE sessions SET status = 'running' WHERE id = ?", created.id);
+
+    const stopRes = await app.request(`/v1/sessions/${created.id}/stop`, {
+      method: "POST",
+    });
+    expect(stopRes.status).toBe(200);
+    const body = (await stopRes.json()) as { id: string; status: string };
+    expect(body.id).toBe(created.id);
+    expect(body.status).toBe("terminated");
+
+    // A session.status_terminated event was persisted so the
+    // transcript reflects the explicit stop.
+    const eventsRes = await app.request(
+      `/v1/sessions/${created.id}/events?order=asc&limit=100`,
+    );
+    const eventsBody = (await eventsRes.json()) as {
+      data: Array<{ type: string; reason?: string }>;
+    };
+    const terminated = eventsBody.data.find(
+      (e) => e.type === "session.status_terminated",
+    );
+    expect(terminated).toBeTruthy();
+    expect((terminated as any)?.reason).toBe("user_requested");
+  });
+
+  it("stop on an unknown session returns 404", async () => {
+    const res = await app.request("/v1/sessions/session_bogus/stop", {
+      method: "POST",
+    });
+    expect(res.status).toBe(404);
+  });
 });

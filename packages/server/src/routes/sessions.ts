@@ -122,6 +122,23 @@ const archiveSessionRoute = createRoute({
   },
 });
 
+const stopSessionRoute = createRoute({
+  method: "post",
+  path: "/v1/sessions/{sessionId}/stop",
+  tags,
+  summary:
+    "Stop a running session — marks it terminated and the engine will bail between iterations",
+  request: {
+    params: SessionIdParamSchema,
+  },
+  responses: {
+    200: {
+      description: "The stopped session",
+      content: { "application/json": { schema: SessionSchema } },
+    },
+  },
+});
+
 // ── Helpers ─────────────────────────────────────────────────────────────────
 
 function rowToSession(row: any): any {
@@ -353,6 +370,46 @@ export function registerSessionRoutes(app: OpenAPIHono) {
     }
 
     await auditLog(await currentUserId(c), "archive", "session", sessionId);
+    return c.json(rowToSession(row), 200);
+  });
+
+  app.openapi(stopSessionRoute, async (c) => {
+    const { sessionId } = c.req.valid("param");
+    const db = await getDB();
+    const now = new Date().toISOString();
+
+    // Flip the status to terminated. The engine loop (when it owns
+    // this session) checks session.status between iterations and
+    // bails if it's no longer "running". The in-flight LLM call
+    // for the current iteration cannot be cancelled mid-generation,
+    // so the stop takes effect at the next iteration boundary —
+    // which in practice is seconds, not minutes.
+    await db.run(
+      "UPDATE sessions SET status = 'terminated', updated_at = ? WHERE id = ?",
+      now,
+      sessionId,
+    );
+
+    // Persist a terminated event so the transcript reflects that a
+    // human clicked Stop (vs the agent naturally going idle).
+    await db.run(
+      "INSERT INTO events (id, session_id, type, data, processed_at) VALUES (?, ?, ?, ?, ?)",
+      newId("evt"),
+      sessionId,
+      "session.status_terminated",
+      JSON.stringify({ reason: "user_requested" }),
+      now,
+    );
+
+    const row = await db.get("SELECT * FROM sessions WHERE id = ?", sessionId);
+    if (!row) {
+      throw Object.assign(new Error(`Session ${sessionId} not found`), {
+        status: 404,
+        type: "not_found",
+      });
+    }
+
+    await auditLog(await currentUserId(c), "stop", "session", sessionId);
     return c.json(rowToSession(row), 200);
   });
 }

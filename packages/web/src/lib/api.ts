@@ -109,6 +109,10 @@ export function createSession(params: SessionCreateParams) {
   });
 }
 
+export function stopSession(id: string) {
+  return request<Session>(`/sessions/${id}/stop`, { method: "POST" });
+}
+
 // ── Session Events ──────────────────────────────────────────────────────
 
 export function listSessionEvents(

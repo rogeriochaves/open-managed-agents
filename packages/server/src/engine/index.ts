@@ -414,6 +414,26 @@ export async function runAgentLoop(
     while (iteration < maxIterations) {
       iteration++;
 
+      // Cooperative cancellation: check the session status before
+      // each LLM call. If a user clicked Stop on the UI (or anything
+      // else POSTed /v1/sessions/:id/stop), the row has been flipped
+      // to "terminated" — bail out of the loop without firing another
+      // provider.chat(). The in-flight call from the previous
+      // iteration has already finished; the next one never runs.
+      const db = await getDB();
+      const statusRow = await db.get<{ status: string }>(
+        "SELECT status FROM sessions WHERE id = ?",
+        sessionId,
+      );
+      if (statusRow?.status === "terminated") {
+        const stoppedEvent = await storeEvent(sessionId, "session.stopped", {
+          reason: "user_requested",
+          iteration,
+        });
+        emitter?.emit(stoppedEvent);
+        return;
+      }
+
       // Build messages from stored events
       const messages = await buildMessagesFromEvents(sessionId);
 

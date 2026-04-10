@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { useParams, Link } from "react-router-dom";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   ArrowLeft,
   Search,
@@ -123,6 +123,7 @@ function formatDuration(event: any): string {
 
 export function SessionDetailPage() {
   const { sessionId } = useParams<{ sessionId: string }>();
+  const queryClient = useQueryClient();
   const [viewMode, setViewMode] = useState<ViewMode>("transcript");
   const [message, setMessage] = useState("");
   const [events, setEvents] = useState<any[]>([]);
@@ -130,6 +131,7 @@ export function SessionDetailPage() {
   const [searchQuery, setSearchQuery] = useState("");
   const [showSearch, setShowSearch] = useState(false);
   const [selectedEvent, setSelectedEvent] = useState<any>(null);
+  const [stopping, setStopping] = useState(false);
   const eventsEndRef = useRef<HTMLDivElement>(null);
 
   const { data: session } = useQuery({
@@ -138,6 +140,19 @@ export function SessionDetailPage() {
     enabled: !!sessionId,
     refetchInterval: 5000,
   });
+
+  const handleStop = async () => {
+    if (!sessionId) return;
+    setStopping(true);
+    try {
+      await api.stopSession(sessionId);
+      await queryClient.invalidateQueries({ queryKey: ["session", sessionId] });
+    } catch (err) {
+      console.error("Failed to stop session:", err);
+    } finally {
+      setStopping(false);
+    }
+  };
 
   // Single source of truth for events: the SSE stream.
   // The server replays existing events on connect, then pushes new ones live.
@@ -250,9 +265,14 @@ export function SessionDetailPage() {
           </div>
         </div>
         {session?.status === "running" && (
-          <Button variant="secondary" size="sm">
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={handleStop}
+            disabled={stopping}
+          >
             <Square className="h-3.5 w-3.5" />
-            Stop
+            {stopping ? "Stopping…" : "Stop"}
           </Button>
         )}
       </div>

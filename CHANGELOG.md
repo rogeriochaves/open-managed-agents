@@ -20,15 +20,15 @@ All notable changes to this project are documented here. Format follows [Keep a 
   - **docker-compose** — validates `docker-compose.yml` parses with `docker compose config -q` and checks all expected services are declared.
 
 #### Tests
-Started this cycle at zero server/cli tests. Ended at **241 total**:
+Started this cycle at zero server/cli tests. Ended at **268 total**:
 
 | Package | Files | Tests |
 |---|:---:|:---:|
-| `@open-managed-agents/server` | 19 | 143 |
-| `@open-managed-agents/web` | 12 | 90 |
+| `@open-managed-agents/server` | 20 | 151 |
+| `@open-managed-agents/web` | 12 | 109 |
 | `@open-managed-agents/cli` | 1 | 5 |
 | `@open-managed-agents/scenario-tests` | 1 | 3 |
-| **Total** | **33** | **241** |
+| **Total** | **34** | **268** |
 
 All three LangWatch Scenario tests now pass end-to-end against the
 live server + real Anthropic provider + gpt-5-mini judge
