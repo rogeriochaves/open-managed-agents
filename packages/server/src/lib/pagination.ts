@@ -41,3 +41,47 @@ export async function buildAfterIdClause(
   if (!row?.created_at) return { where: "", values: [] };
   return { where: "created_at < ?", values: [row.created_at] };
 }
+
+/**
+ * Build WHERE conditions + values for the `created_at[gt|gte|lt|lte]`
+ * query params that AgentListQuerySchema / SessionListQuerySchema
+ * already declared. Handlers used to ignore these entirely, so the
+ * "Last 24 hours" date filter on the agents/sessions list pages
+ * was a visual illusion — the dropdown changed but the rows didn't.
+ *
+ * Each handler calls this once per request and splices the returned
+ * clauses into its own conditions array alongside include_archived,
+ * agent_id, and the cursor clause.
+ */
+export interface DateRangeClauses {
+  clauses: string[];
+  values: unknown[];
+}
+
+export function buildCreatedAtClauses(
+  query: Record<string, unknown>,
+): DateRangeClauses {
+  const clauses: string[] = [];
+  const values: unknown[] = [];
+  const gte = query["created_at[gte]"];
+  const gt = query["created_at[gt]"];
+  const lte = query["created_at[lte]"];
+  const lt = query["created_at[lt]"];
+  if (typeof gte === "string" && gte) {
+    clauses.push("created_at >= ?");
+    values.push(gte);
+  }
+  if (typeof gt === "string" && gt) {
+    clauses.push("created_at > ?");
+    values.push(gt);
+  }
+  if (typeof lte === "string" && lte) {
+    clauses.push("created_at <= ?");
+    values.push(lte);
+  }
+  if (typeof lt === "string" && lt) {
+    clauses.push("created_at < ?");
+    values.push(lt);
+  }
+  return { clauses, values };
+}

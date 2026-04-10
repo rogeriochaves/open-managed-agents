@@ -12,7 +12,7 @@ import { getDB, newId } from "../db/index.js";
 import { auditLog } from "./governance.js";
 import { currentUser, currentUserId } from "../lib/current-user.js";
 import { canUseProvider, canUseConnector } from "../lib/access-control.js";
-import { buildAfterIdClause } from "../lib/pagination.js";
+import { buildAfterIdClause, buildCreatedAtClauses } from "../lib/pagination.js";
 
 const tags = ["Sessions"];
 
@@ -313,9 +313,22 @@ export function registerSessionRoutes(app: OpenAPIHono) {
       conditions.push("agent_id = ?");
       values.push(query.agent_id);
     }
+    // NB: agent_version is declared on SessionListQuerySchema but
+    // intentionally not wired here — filtering by it requires
+    // json_extract (sqlite) / ->> (postgres), which aren't portable
+    // across DbAdapter. When someone actually needs it, do it via
+    // a dedicated DbAdapter.jsonPathEquals() helper so the
+    // postgres-smoke CI job keeps passing.
     if (!query.include_archived) {
       conditions.push("archived_at IS NULL");
     }
+
+    // Honor created_at[gt|gte|lt|lte] range filters — web date
+    // filters (Last 24h / 7d / 30d) send these but the handler
+    // used to ignore them.
+    const dateRange = buildCreatedAtClauses(query);
+    conditions.push(...dateRange.clauses);
+    values.push(...dateRange.values);
 
     // Cursor pagination — previously ignored so page 2 returned page 1.
     const cursor = await buildAfterIdClause(db, "sessions", query.after_id);

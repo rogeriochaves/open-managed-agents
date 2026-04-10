@@ -10,7 +10,7 @@ import { pageCursorResponse } from "../schemas/common.js";
 import { getDB, newId } from "../db/index.js";
 import { auditLog } from "./governance.js";
 import { currentUserId } from "../lib/current-user.js";
-import { buildAfterIdClause } from "../lib/pagination.js";
+import { buildAfterIdClause, buildCreatedAtClauses } from "../lib/pagination.js";
 
 const tags = ["Agents"];
 
@@ -256,6 +256,12 @@ export function registerAgentRoutes(app: OpenAPIHono) {
     if (!query.include_archived) {
       conditions.push("archived_at IS NULL");
     }
+
+    // Honor created_at[gte]/[lte] — the web "Last 24 hours"
+    // filter sends these but the handler used to ignore them.
+    const dateRange = buildCreatedAtClauses(query);
+    conditions.push(...dateRange.clauses);
+    values.push(...dateRange.values);
 
     // Honor cursor pagination — handlers used to ignore after_id
     // and a user with >20 agents could never page past screen 1.

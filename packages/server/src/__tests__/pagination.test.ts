@@ -243,4 +243,86 @@ describe("Cursor pagination via after_id", () => {
     const body = (await res.json()) as { data: Array<{ id: string }> };
     expect(body.data.length).toBeGreaterThan(0);
   });
+
+  // ── Date range filters ─────────────────────────────────────────────
+  // AgentListQuerySchema + SessionListQuerySchema declare
+  // created_at[gte]/[lte] and the web UI sends them on "Last 24
+  // hours" / "Last 7 days" clicks, but the handlers used to ignore
+  // them — a visual illusion where the dropdown changed and the
+  // rows didn't.
+
+  it("agents: created_at[gte] filter excludes rows older than the boundary", async () => {
+    // Insert rows at fixed timestamps so the filter boundary is
+    // unambiguous. We reuse the agents table which may already have
+    // rows from previous tests, so pin the timestamps well outside
+    // that range.
+    const old = await insertAgent("agent-old", "2025-01-01T00:00:00.000Z");
+    const recent = await insertAgent("agent-recent", "2025-06-01T00:00:00.000Z");
+
+    // Boundary: 2025-03-01 — should include recent but NOT old.
+    const res = await app.request(
+      "/v1/agents?limit=100&created_at%5Bgte%5D=2025-03-01T00:00:00.000Z",
+    );
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { data: Array<{ id: string }> };
+    const ids = body.data.map((r) => r.id);
+    expect(ids).toContain(recent);
+    expect(ids).not.toContain(old);
+  });
+
+  it("agents: created_at[lte] filter excludes rows newer than the boundary", async () => {
+    const old = await insertAgent("agent-lte-old", "2024-01-01T00:00:00.000Z");
+    const recent = await insertAgent(
+      "agent-lte-recent",
+      "2024-12-01T00:00:00.000Z",
+    );
+
+    const res = await app.request(
+      "/v1/agents?limit=100&created_at%5Blte%5D=2024-06-01T00:00:00.000Z",
+    );
+    const body = (await res.json()) as { data: Array<{ id: string }> };
+    const ids = body.data.map((r) => r.id);
+    expect(ids).toContain(old);
+    expect(ids).not.toContain(recent);
+  });
+
+  it("sessions: created_at[gte] range filter works end-to-end", async () => {
+    const old = await insertSession(
+      "sess-old",
+      "2023-01-01T00:00:00.000Z",
+    );
+    const recent = await insertSession(
+      "sess-recent",
+      "2023-12-01T00:00:00.000Z",
+    );
+
+    const res = await app.request(
+      "/v1/sessions?limit=100&created_at%5Bgte%5D=2023-06-01T00:00:00.000Z",
+    );
+    const body = (await res.json()) as { data: Array<{ id: string }> };
+    const ids = body.data.map((r) => r.id);
+    expect(ids).toContain(recent);
+    expect(ids).not.toContain(old);
+  });
+
+  it("date range + after_id compose correctly", async () => {
+    // With a gte filter AND a cursor, both must be honored.
+    const t1 = "2022-01-01T00:00:00.000Z";
+    const t2 = "2022-06-01T00:00:00.000Z";
+    const t3 = "2022-12-01T00:00:00.000Z";
+    const a1 = await insertAgent("compose-1", t1);
+    const a2 = await insertAgent("compose-2", t2);
+    const a3 = await insertAgent("compose-3", t3);
+
+    // Range: t1.5 onwards (excludes a1). Cursor: after a3.
+    // Expected: only a2 remains.
+    const res = await app.request(
+      `/v1/agents?limit=100&created_at%5Bgte%5D=2022-03-01T00:00:00.000Z&after_id=${a3}`,
+    );
+    const body = (await res.json()) as { data: Array<{ id: string }> };
+    const ids = body.data.map((r) => r.id);
+    expect(ids).toContain(a2);
+    expect(ids).not.toContain(a1);
+    expect(ids).not.toContain(a3);
+  });
 });
