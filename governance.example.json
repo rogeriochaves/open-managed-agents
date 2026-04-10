@@ -1,0 +1,118 @@
+{
+  "$schema": "https://open-managed-agents.dev/governance-config.schema.json",
+  "providers": [
+    {
+      "name": "Anthropic",
+      "type": "anthropic",
+      "api_key_env": "ANTHROPIC_API_KEY",
+      "default_model": "claude-sonnet-4-6",
+      "is_default": true
+    },
+    {
+      "name": "OpenAI",
+      "type": "openai",
+      "api_key_env": "OPENAI_API_KEY",
+      "default_model": "gpt-4o"
+    },
+    {
+      "name": "Local LLM (Ollama)",
+      "type": "ollama",
+      "base_url": "http://ollama:11434/v1",
+      "default_model": "llama3.1"
+    }
+  ],
+  "organizations": [
+    {
+      "name": "Acme Corp",
+      "slug": "acme",
+      "sso_provider": "okta",
+      "sso_config": {
+        "issuer": "https://acme.okta.com",
+        "client_id": "your-client-id",
+        "client_secret_env": "OKTA_CLIENT_SECRET"
+      },
+      "teams": [
+        {
+          "name": "Engineering",
+          "slug": "engineering",
+          "description": "Backend and infrastructure engineering team",
+          "providers": [
+            {
+              "id": "provider_anthropic",
+              "enabled": true,
+              "rate_limit_rpm": 1000,
+              "monthly_budget_usd": 500
+            },
+            {
+              "id": "provider_openai",
+              "enabled": true,
+              "rate_limit_rpm": 500,
+              "monthly_budget_usd": 200
+            }
+          ],
+          "mcp_policies": [
+            { "connector_id": "slack", "policy": "allowed" },
+            { "connector_id": "github", "policy": "allowed" },
+            { "connector_id": "linear", "policy": "allowed" },
+            { "connector_id": "sentry", "policy": "allowed" },
+            { "connector_id": "notion", "policy": "allowed" },
+            { "connector_id": "postgres", "policy": "requires_approval" },
+            { "connector_id": "stripe", "policy": "blocked" }
+          ],
+          "projects": [
+            { "name": "Backend Services", "slug": "backend" },
+            { "name": "Infrastructure", "slug": "infra" }
+          ]
+        },
+        {
+          "name": "Marketing",
+          "slug": "marketing",
+          "description": "Marketing and content team",
+          "providers": [
+            {
+              "id": "provider_anthropic",
+              "enabled": true,
+              "rate_limit_rpm": 200,
+              "monthly_budget_usd": 100
+            }
+          ],
+          "mcp_policies": [
+            { "connector_id": "slack", "policy": "allowed" },
+            { "connector_id": "notion", "policy": "allowed" },
+            { "connector_id": "google-drive", "policy": "allowed" },
+            { "connector_id": "github", "policy": "blocked" },
+            { "connector_id": "postgres", "policy": "blocked" },
+            { "connector_id": "stripe", "policy": "blocked" }
+          ],
+          "projects": [
+            { "name": "Content Pipeline", "slug": "content" }
+          ]
+        },
+        {
+          "name": "Support",
+          "slug": "support",
+          "description": "Customer support team",
+          "providers": [
+            {
+              "id": "provider_anthropic",
+              "enabled": true,
+              "rate_limit_rpm": 500,
+              "monthly_budget_usd": 300
+            }
+          ],
+          "mcp_policies": [
+            { "connector_id": "slack", "policy": "allowed" },
+            { "connector_id": "intercom", "policy": "allowed" },
+            { "connector_id": "notion", "policy": "allowed" },
+            { "connector_id": "atlassian", "policy": "allowed" },
+            { "connector_id": "github", "policy": "blocked" },
+            { "connector_id": "stripe", "policy": "blocked" }
+          ],
+          "projects": [
+            { "name": "Ticket Automation", "slug": "tickets" }
+          ]
+        }
+      ]
+    }
+  ]
+}

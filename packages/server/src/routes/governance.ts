@@ -1,0 +1,318 @@
+import { OpenAPIHono, createRoute, z } from "@hono/zod-openapi";
+import { getDB, newId } from "../db/index.js";
+
+const tags = ["Governance"];
+
+// ── Schemas ────────────────────────────────────────────────────────────────
+
+const OrgSchema = z.object({
+  id: z.string(), name: z.string(), slug: z.string(),
+  logo_url: z.string().nullable(), sso_provider: z.string().nullable(),
+  created_at: z.string(), updated_at: z.string(),
+});
+
+const TeamSchema = z.object({
+  id: z.string(), organization_id: z.string(), name: z.string(), slug: z.string(),
+  description: z.string().nullable(), created_at: z.string(), updated_at: z.string(),
+});
+
+const ProjectSchema = z.object({
+  id: z.string(), team_id: z.string(), name: z.string(), slug: z.string(),
+  description: z.string().nullable(), created_at: z.string(), updated_at: z.string(),
+});
+
+const UserSchema = z.object({
+  id: z.string(), email: z.string(), name: z.string(), role: z.string(),
+  organization_id: z.string().nullable(), avatar_url: z.string().nullable(),
+  created_at: z.string(), updated_at: z.string(),
+});
+
+const TeamMemberSchema = z.object({
+  id: z.string(), team_id: z.string(), user_id: z.string(), role: z.string(),
+  user: UserSchema.optional(), created_at: z.string(),
+});
+
+const TeamProviderAccessSchema = z.object({
+  id: z.string(), team_id: z.string(), provider_id: z.string(),
+  enabled: z.boolean(), rate_limit_rpm: z.number().nullable(),
+  monthly_budget_usd: z.number().nullable(), created_at: z.string(),
+});
+
+const TeamMCPPolicySchema = z.object({
+  id: z.string(), team_id: z.string(), connector_id: z.string(),
+  policy: z.enum(["allowed", "blocked", "requires_approval"]), created_at: z.string(),
+});
+
+// ── Routes ─────────────────────────────────────────────────────────────────
+
+// Organizations
+const listOrgsRoute = createRoute({
+  method: "get", path: "/v1/organizations", tags, summary: "List organizations",
+  responses: { 200: { description: "Organizations", content: { "application/json": { schema: z.object({ data: z.array(OrgSchema) }) } } } },
+});
+
+const createOrgRoute = createRoute({
+  method: "post", path: "/v1/organizations", tags, summary: "Create organization",
+  request: { body: { content: { "application/json": { schema: z.object({ name: z.string(), slug: z.string(), logo_url: z.string().optional(), sso_provider: z.string().optional(), sso_config: z.any().optional() }) } } } },
+  responses: { 200: { description: "Created", content: { "application/json": { schema: OrgSchema } } } },
+});
+
+// Teams
+const listTeamsRoute = createRoute({
+  method: "get", path: "/v1/organizations/{orgId}/teams", tags, summary: "List teams",
+  request: { params: z.object({ orgId: z.string() }) },
+  responses: { 200: { description: "Teams", content: { "application/json": { schema: z.object({ data: z.array(TeamSchema) }) } } } },
+});
+
+const createTeamRoute = createRoute({
+  method: "post", path: "/v1/organizations/{orgId}/teams", tags, summary: "Create team",
+  request: { params: z.object({ orgId: z.string() }), body: { content: { "application/json": { schema: z.object({ name: z.string(), slug: z.string(), description: z.string().optional() }) } } } },
+  responses: { 200: { description: "Created", content: { "application/json": { schema: TeamSchema } } } },
+});
+
+// Projects
+const listProjectsRoute = createRoute({
+  method: "get", path: "/v1/teams/{teamId}/projects", tags, summary: "List projects",
+  request: { params: z.object({ teamId: z.string() }) },
+  responses: { 200: { description: "Projects", content: { "application/json": { schema: z.object({ data: z.array(ProjectSchema) }) } } } },
+});
+
+const createProjectRoute = createRoute({
+  method: "post", path: "/v1/teams/{teamId}/projects", tags, summary: "Create project",
+  request: { params: z.object({ teamId: z.string() }), body: { content: { "application/json": { schema: z.object({ name: z.string(), slug: z.string(), description: z.string().optional() }) } } } },
+  responses: { 200: { description: "Created", content: { "application/json": { schema: ProjectSchema } } } },
+});
+
+// Team members
+const listMembersRoute = createRoute({
+  method: "get", path: "/v1/teams/{teamId}/members", tags, summary: "List team members",
+  request: { params: z.object({ teamId: z.string() }) },
+  responses: { 200: { description: "Members", content: { "application/json": { schema: z.object({ data: z.array(TeamMemberSchema) }) } } } },
+});
+
+const addMemberRoute = createRoute({
+  method: "post", path: "/v1/teams/{teamId}/members", tags, summary: "Add team member",
+  request: { params: z.object({ teamId: z.string() }), body: { content: { "application/json": { schema: z.object({ user_id: z.string(), role: z.enum(["admin", "member", "viewer"]).optional() }) } } } },
+  responses: { 200: { description: "Added", content: { "application/json": { schema: TeamMemberSchema } } } },
+});
+
+// Provider access
+const listProviderAccessRoute = createRoute({
+  method: "get", path: "/v1/teams/{teamId}/provider-access", tags, summary: "List team provider access",
+  request: { params: z.object({ teamId: z.string() }) },
+  responses: { 200: { description: "Access rules", content: { "application/json": { schema: z.object({ data: z.array(TeamProviderAccessSchema) }) } } } },
+});
+
+const setProviderAccessRoute = createRoute({
+  method: "post", path: "/v1/teams/{teamId}/provider-access", tags, summary: "Set team provider access",
+  request: { params: z.object({ teamId: z.string() }), body: { content: { "application/json": { schema: z.object({ provider_id: z.string(), enabled: z.boolean().optional(), rate_limit_rpm: z.number().nullable().optional(), monthly_budget_usd: z.number().nullable().optional() }) } } } },
+  responses: { 200: { description: "Set", content: { "application/json": { schema: TeamProviderAccessSchema } } } },
+});
+
+// MCP policies
+const listMCPPoliciesRoute = createRoute({
+  method: "get", path: "/v1/teams/{teamId}/mcp-policies", tags, summary: "List MCP policies",
+  request: { params: z.object({ teamId: z.string() }) },
+  responses: { 200: { description: "Policies", content: { "application/json": { schema: z.object({ data: z.array(TeamMCPPolicySchema) }) } } } },
+});
+
+const setMCPPolicyRoute = createRoute({
+  method: "post", path: "/v1/teams/{teamId}/mcp-policies", tags, summary: "Set MCP policy",
+  request: { params: z.object({ teamId: z.string() }), body: { content: { "application/json": { schema: z.object({ connector_id: z.string(), policy: z.enum(["allowed", "blocked", "requires_approval"]) }) } } } },
+  responses: { 200: { description: "Set", content: { "application/json": { schema: TeamMCPPolicySchema } } } },
+});
+
+// Users
+const listUsersRoute = createRoute({
+  method: "get", path: "/v1/users", tags, summary: "List users",
+  responses: { 200: { description: "Users", content: { "application/json": { schema: z.object({ data: z.array(UserSchema) }) } } } },
+});
+
+const createUserRoute = createRoute({
+  method: "post", path: "/v1/users", tags, summary: "Create user",
+  request: { body: { content: { "application/json": { schema: z.object({ email: z.string(), name: z.string(), role: z.enum(["admin", "member", "viewer"]).optional(), organization_id: z.string().optional() }) } } } },
+  responses: { 200: { description: "Created", content: { "application/json": { schema: UserSchema } } } },
+});
+
+// Audit log
+const listAuditLogRoute = createRoute({
+  method: "get", path: "/v1/audit-log", tags, summary: "List audit log entries",
+  request: { query: z.object({ limit: z.coerce.number().optional(), resource_type: z.string().optional() }) },
+  responses: { 200: { description: "Audit log", content: { "application/json": { schema: z.object({ data: z.array(z.object({ id: z.string(), user_id: z.string().nullable(), action: z.string(), resource_type: z.string(), resource_id: z.string().nullable(), details: z.string().nullable(), created_at: z.string() })) }) } } } },
+});
+
+// ── Helpers ─────────────────────────────────────────────────────────────────
+
+function rowClean(row: any) {
+  if (!row) return row;
+  const r = { ...row };
+  // Convert SQLite integers to booleans where needed
+  if ("enabled" in r) r.enabled = !!r.enabled;
+  return r;
+}
+
+// ── Register ───────────────────────────────────────────────────────────────
+
+export function registerGovernanceRoutes(app: OpenAPIHono) {
+  const db = getDB();
+
+  // Organizations
+  app.openapi(listOrgsRoute, (c) => {
+    const rows = db.prepare("SELECT * FROM organizations ORDER BY name").all();
+    return c.json({ data: rows.map(rowClean) }, 200);
+  });
+
+  app.openapi(createOrgRoute, (c) => {
+    const body = c.req.valid("json") as any;
+    const id = newId("org");
+    const now = new Date().toISOString();
+    db.prepare("INSERT INTO organizations (id, name, slug, logo_url, sso_provider, sso_config, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?)").run(id, body.name, body.slug, body.logo_url ?? null, body.sso_provider ?? null, body.sso_config ? JSON.stringify(body.sso_config) : null, now, now);
+    return c.json(rowClean(db.prepare("SELECT * FROM organizations WHERE id = ?").get(id)), 200);
+  });
+
+  // Teams
+  app.openapi(listTeamsRoute, (c) => {
+    const { orgId } = c.req.valid("param");
+    const rows = db.prepare("SELECT * FROM teams WHERE organization_id = ? ORDER BY name").all(orgId);
+    return c.json({ data: rows.map(rowClean) }, 200);
+  });
+
+  app.openapi(createTeamRoute, (c) => {
+    const { orgId } = c.req.valid("param");
+    const body = c.req.valid("json") as any;
+    const id = newId("team");
+    const now = new Date().toISOString();
+    db.prepare("INSERT INTO teams (id, organization_id, name, slug, description, created_at, updated_at) VALUES (?,?,?,?,?,?,?)").run(id, orgId, body.name, body.slug, body.description ?? null, now, now);
+    return c.json(rowClean(db.prepare("SELECT * FROM teams WHERE id = ?").get(id)), 200);
+  });
+
+  // Projects
+  app.openapi(listProjectsRoute, (c) => {
+    const { teamId } = c.req.valid("param");
+    const rows = db.prepare("SELECT * FROM projects WHERE team_id = ? ORDER BY name").all(teamId);
+    return c.json({ data: rows.map(rowClean) }, 200);
+  });
+
+  app.openapi(createProjectRoute, (c) => {
+    const { teamId } = c.req.valid("param");
+    const body = c.req.valid("json") as any;
+    const id = newId("proj");
+    const now = new Date().toISOString();
+    db.prepare("INSERT INTO projects (id, team_id, name, slug, description, created_at, updated_at) VALUES (?,?,?,?,?,?,?)").run(id, teamId, body.name, body.slug, body.description ?? null, now, now);
+    return c.json(rowClean(db.prepare("SELECT * FROM projects WHERE id = ?").get(id)), 200);
+  });
+
+  // Team members
+  app.openapi(listMembersRoute, (c) => {
+    const { teamId } = c.req.valid("param");
+    const rows = db.prepare(`
+      SELECT tm.*, u.email, u.name as user_name, u.role as user_role, u.avatar_url
+      FROM team_members tm
+      LEFT JOIN users u ON u.id = tm.user_id
+      WHERE tm.team_id = ?
+      ORDER BY tm.created_at
+    `).all(teamId) as any[];
+
+    const members = rows.map((r) => ({
+      id: r.id, team_id: r.team_id, user_id: r.user_id, role: r.role, created_at: r.created_at,
+      user: { id: r.user_id, email: r.email, name: r.user_name, role: r.user_role, avatar_url: r.avatar_url, organization_id: null, created_at: r.created_at, updated_at: r.created_at },
+    }));
+    return c.json({ data: members }, 200);
+  });
+
+  app.openapi(addMemberRoute, (c) => {
+    const { teamId } = c.req.valid("param");
+    const body = c.req.valid("json") as any;
+    const id = newId("tm");
+    const now = new Date().toISOString();
+    db.prepare("INSERT OR REPLACE INTO team_members (id, team_id, user_id, role, created_at) VALUES (?,?,?,?,?)").run(id, teamId, body.user_id, body.role ?? "member", now);
+    return c.json(rowClean(db.prepare("SELECT * FROM team_members WHERE id = ?").get(id)), 200);
+  });
+
+  // Provider access
+  app.openapi(listProviderAccessRoute, (c) => {
+    const { teamId } = c.req.valid("param");
+    const rows = db.prepare("SELECT * FROM team_provider_access WHERE team_id = ?").all(teamId);
+    return c.json({ data: rows.map(rowClean) }, 200);
+  });
+
+  app.openapi(setProviderAccessRoute, (c) => {
+    const { teamId } = c.req.valid("param");
+    const body = c.req.valid("json") as any;
+    const existing = db.prepare("SELECT * FROM team_provider_access WHERE team_id = ? AND provider_id = ?").get(teamId, body.provider_id) as any;
+
+    if (existing) {
+      const updates: string[] = [];
+      const values: any[] = [];
+      if (body.enabled !== undefined) { updates.push("enabled = ?"); values.push(body.enabled ? 1 : 0); }
+      if (body.rate_limit_rpm !== undefined) { updates.push("rate_limit_rpm = ?"); values.push(body.rate_limit_rpm); }
+      if (body.monthly_budget_usd !== undefined) { updates.push("monthly_budget_usd = ?"); values.push(body.monthly_budget_usd); }
+      if (updates.length > 0) {
+        values.push(existing.id);
+        db.prepare(`UPDATE team_provider_access SET ${updates.join(", ")} WHERE id = ?`).run(...values);
+      }
+      return c.json(rowClean(db.prepare("SELECT * FROM team_provider_access WHERE id = ?").get(existing.id)), 200);
+    }
+
+    const id = newId("tpa");
+    db.prepare("INSERT INTO team_provider_access (id, team_id, provider_id, enabled, rate_limit_rpm, monthly_budget_usd) VALUES (?,?,?,?,?,?)").run(id, teamId, body.provider_id, body.enabled !== false ? 1 : 0, body.rate_limit_rpm ?? null, body.monthly_budget_usd ?? null);
+    return c.json(rowClean(db.prepare("SELECT * FROM team_provider_access WHERE id = ?").get(id)), 200);
+  });
+
+  // MCP policies
+  app.openapi(listMCPPoliciesRoute, (c) => {
+    const { teamId } = c.req.valid("param");
+    const rows = db.prepare("SELECT * FROM team_mcp_policies WHERE team_id = ?").all(teamId);
+    return c.json({ data: rows.map(rowClean) }, 200);
+  });
+
+  app.openapi(setMCPPolicyRoute, (c) => {
+    const { teamId } = c.req.valid("param");
+    const body = c.req.valid("json") as any;
+    const existing = db.prepare("SELECT * FROM team_mcp_policies WHERE team_id = ? AND connector_id = ?").get(teamId, body.connector_id) as any;
+
+    if (existing) {
+      db.prepare("UPDATE team_mcp_policies SET policy = ? WHERE id = ?").run(body.policy, existing.id);
+      return c.json(rowClean(db.prepare("SELECT * FROM team_mcp_policies WHERE id = ?").get(existing.id)), 200);
+    }
+
+    const id = newId("mcp_pol");
+    db.prepare("INSERT INTO team_mcp_policies (id, team_id, connector_id, policy) VALUES (?,?,?,?)").run(id, teamId, body.connector_id, body.policy);
+    return c.json(rowClean(db.prepare("SELECT * FROM team_mcp_policies WHERE id = ?").get(id)), 200);
+  });
+
+  // Users
+  app.openapi(listUsersRoute, (c) => {
+    const rows = db.prepare("SELECT id, email, name, role, organization_id, avatar_url, created_at, updated_at FROM users ORDER BY name").all();
+    return c.json({ data: rows.map(rowClean) }, 200);
+  });
+
+  app.openapi(createUserRoute, (c) => {
+    const body = c.req.valid("json") as any;
+    const id = newId("user");
+    const now = new Date().toISOString();
+    db.prepare("INSERT INTO users (id, email, name, role, organization_id, created_at, updated_at) VALUES (?,?,?,?,?,?,?)").run(id, body.email, body.name, body.role ?? "member", body.organization_id ?? "org_default", now, now);
+    return c.json(rowClean(db.prepare("SELECT id, email, name, role, organization_id, avatar_url, created_at, updated_at FROM users WHERE id = ?").get(id)), 200);
+  });
+
+  // Audit log
+  app.openapi(listAuditLogRoute, (c) => {
+    const query = c.req.valid("query") as any;
+    const limit = Math.min(query.limit ?? 50, 500);
+    const conditions: string[] = [];
+    const values: any[] = [];
+    if (query.resource_type) { conditions.push("resource_type = ?"); values.push(query.resource_type); }
+    const where = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
+    const rows = db.prepare(`SELECT * FROM audit_log ${where} ORDER BY created_at DESC LIMIT ?`).all(...values, limit);
+    return c.json({ data: rows.map(rowClean) }, 200);
+  });
+}
+
+/**
+ * Log an action to the audit log.
+ */
+export function auditLog(userId: string | null, action: string, resourceType: string, resourceId?: string, details?: string) {
+  const db = getDB();
+  const id = newId("audit");
+  db.prepare("INSERT INTO audit_log (id, user_id, action, resource_type, resource_id, details) VALUES (?,?,?,?,?,?)").run(id, userId, action, resourceType, resourceId ?? null, details ?? null);
+}
