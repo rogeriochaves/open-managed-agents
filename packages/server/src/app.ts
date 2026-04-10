@@ -26,6 +26,7 @@ import { registerAuthRoutes } from "./routes/auth.js";
 import { getDB } from "./db/index.js";
 import { loadGovernanceConfig } from "./lib/governance-config.js";
 import { initAuth } from "./lib/auth-session.js";
+import { initEncryption } from "./lib/encryption.js";
 
 export interface CreateAppOptions {
   /** Path to a governance config JSON file to load on boot. */
@@ -41,6 +42,11 @@ export interface CreateAppOptions {
 export async function createApp(
   options: CreateAppOptions = {}
 ): Promise<OpenAPIHono> {
+  // Initialize encryption before any route that reads/writes vault
+  // credentials can run. Reads VAULT_ENCRYPTION_KEY from env, or
+  // auto-generates and persists one to .env on first boot.
+  initEncryption();
+
   // Initialize database schema and default seeds
   await getDB();
   if (!options.skipProviderSeed) {
