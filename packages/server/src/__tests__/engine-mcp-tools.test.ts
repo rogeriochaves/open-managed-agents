@@ -41,7 +41,7 @@ vi.mock("../lib/mcp-client.js", async () => {
 });
 
 const { createApp } = await import("../app.js");
-const { resolveTools } = await import("../engine/index.js");
+const { resolveTools, executeBuiltinTool } = await import("../engine/index.js");
 
 let app: Awaited<ReturnType<typeof createApp>>;
 
@@ -183,5 +183,123 @@ describe("engine resolveTools() — MCP integration", () => {
     expect(
       Array.from(mcpRoutes.keys()).some((k) => k.startsWith("__mcp__slack__")),
     ).toBe(false);
+  });
+});
+
+describe("executeBuiltinTool MCP routing", () => {
+  it("routes a __mcp__ prefixed call through callMCPTool with correct params", async () => {
+    callToolStub.mockResolvedValueOnce({
+      content: [{ type: "text", text: "done" }],
+      is_error: false,
+    });
+
+    const mcpRoutes = new Map([
+      [
+        "__mcp__slack__send_message",
+        {
+          connectorId: "slack",
+          url: "https://mcp.slack.com/sse",
+          token: "decrypted-token",
+          originalName: "send_message",
+        },
+      ],
+    ]);
+
+    const result = await executeBuiltinTool(
+      "__mcp__slack__send_message",
+      { channel: "general", text: "hello" },
+      mcpRoutes,
+    );
+
+    expect(callToolStub).toHaveBeenCalledWith(
+      "https://mcp.slack.com/sse",
+      "decrypted-token",
+      "send_message",
+      { channel: "general", text: "hello" },
+    );
+    expect(result.content).toBe("done");
+    expect(result.is_error).toBe(false);
+  });
+
+  it("returns an error result when callMCPTool throws MCPClientError", async () => {
+    const { MCPClientError } = await import("../lib/mcp-client.js");
+    callToolStub.mockRejectedValueOnce(
+      new MCPClientError("connection refused", 502, "mcp_error"),
+    );
+
+    const mcpRoutes = new Map([
+      [
+        "__mcp__slack__send_message",
+        {
+          connectorId: "slack",
+          url: "https://mcp.slack.com/sse",
+          token: "decrypted-token",
+          originalName: "send_message",
+        },
+      ],
+    ]);
+
+    const result = await executeBuiltinTool(
+      "__mcp__slack__send_message",
+      {},
+      mcpRoutes,
+    );
+
+    expect(result.is_error).toBe(true);
+    expect(result.content).toContain("MCP call failed");
+    expect(result.content).toContain("slack.send_message");
+    expect(result.content).toContain("connection refused");
+  });
+
+  it("does NOT route when the tool name is not in mcpRoutes (custom tool)", async () => {
+    callToolStub.mockReset(); // completely reset so not.toHaveBeenCalled works
+    const mcpRoutes = new Map();
+
+    const result = await executeBuiltinTool(
+      "my_custom_tool",
+      { param: "value" },
+      mcpRoutes,
+    );
+
+    // Should not have called callToolStub
+    expect(callToolStub).not.toHaveBeenCalled();
+    // Should return an error (unrecognized non-MCP built-in)
+    expect(result.is_error).toBe(true);
+  });
+});
+
+describe("resolveTools passes organizationId to loadConnectorToken", () => {
+  it("calls loadConnectorToken with the org parameter for each MCP server", async () => {
+    // verify that resolveTools (via the mock) receives the correct orgId
+    // and loadConnectorToken is called with it
+    const { tools: tools1 } = await resolveTools(
+      {
+        name: "agent1",
+        system: null,
+        model: "claude-sonnet-4-6",
+        tools: [],
+        mcp_servers: [{ name: "slack", url: "https://mcp.slack.com/sse", type: "url" }],
+        skills: [],
+      },
+      "org_acme", // non-default org
+    );
+
+    expect(loadTokenStub).toHaveBeenCalledWith("org_acme", "slack");
+
+    loadTokenStub.mockClear();
+
+    const { tools: tools2 } = await resolveTools(
+      {
+        name: "agent2",
+        system: null,
+        model: "claude-sonnet-4-6",
+        tools: [],
+        mcp_servers: [{ name: "notion", url: "https://mcp.notion.com/sse", type: "url" }],
+        skills: [],
+      },
+      "org_default",
+    );
+
+    expect(loadTokenStub).toHaveBeenCalledWith("org_default", "notion");
   });
 });

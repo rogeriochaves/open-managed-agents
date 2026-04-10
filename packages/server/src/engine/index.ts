@@ -177,7 +177,7 @@ export async function resolveTools(
  * If the tool name starts with `__mcp__<connector>__`, it's routed
  * through the MCP client using the matching route from resolveTools.
  */
-async function executeBuiltinTool(
+export async function executeBuiltinTool(
   name: string,
   input: Record<string, unknown>,
   mcpRoutes?: Map<string, MCPToolRoute>,
