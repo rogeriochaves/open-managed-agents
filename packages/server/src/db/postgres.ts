@@ -3,9 +3,10 @@ import type { DbAdapter } from "./adapter.js";
 
 /**
  * Translate SQL with `?` placeholders to Postgres `$1..$N` form.
- * Keeps `?` inside single-quoted strings untouched.
+ * Keeps `?` inside single- and double-quoted literals untouched.
+ * Exported so tests can exercise it directly without a live pg server.
  */
-function translateSql(sql: string): string {
+export function translateSql(sql: string): string {
   let out = "";
   let i = 0;
   let n = 1;
