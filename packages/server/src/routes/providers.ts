@@ -9,10 +9,20 @@ const tags = ["Providers"];
 
 // ── Schemas ────────────────────────────────────────────────────────────────
 
+const PROVIDER_TYPES = [
+  "anthropic",
+  "openai",
+  "google",
+  "mistral",
+  "groq",
+  "openai-compatible",
+  "ollama",
+] as const;
+
 const ProviderSchema = z.object({
   id: z.string(),
   name: z.string(),
-  type: z.enum(["anthropic", "openai", "openai-compatible", "ollama"]),
+  type: z.enum(PROVIDER_TYPES),
   base_url: z.string().nullable(),
   default_model: z.string().nullable(),
   is_default: z.boolean(),
@@ -23,7 +33,7 @@ const ProviderSchema = z.object({
 
 const ProviderCreateBodySchema = z.object({
   name: z.string(),
-  type: z.enum(["anthropic", "openai", "openai-compatible", "ollama"]),
+  type: z.enum(PROVIDER_TYPES),
   api_key: z.string().optional(),
   base_url: z.string().optional(),
   default_model: z.string().optional(),
@@ -121,23 +131,57 @@ function rowToProvider(row: any) {
 
 /**
  * Seed default providers from environment variables if none exist.
+ * The FIRST provider whose env var is set becomes the default — the
+ * order here is Anthropic → OpenAI → Google → Mistral → Groq → Ollama.
  */
 export async function seedDefaultProviders() {
   const db = await getDB();
   const countRow = await db.get<{ c: number }>("SELECT COUNT(*) as c FROM llm_providers");
   if ((countRow?.c ?? 0) > 0) return;
 
-  if (process.env.ANTHROPIC_API_KEY) {
+  const seeds: Array<{
+    id: string;
+    name: string;
+    type: string;
+    envVar: string;
+    defaultModel: string;
+    baseUrl?: string;
+  }> = [
+    { id: "provider_anthropic", name: "Anthropic", type: "anthropic", envVar: "ANTHROPIC_API_KEY", defaultModel: "claude-sonnet-4-6" },
+    { id: "provider_openai", name: "OpenAI", type: "openai", envVar: "OPENAI_API_KEY", defaultModel: "gpt-5-mini" },
+    { id: "provider_google", name: "Google Gemini", type: "google", envVar: "GOOGLE_GENERATIVE_AI_API_KEY", defaultModel: "gemini-2.5-flash" },
+    { id: "provider_mistral", name: "Mistral", type: "mistral", envVar: "MISTRAL_API_KEY", defaultModel: "mistral-large-latest" },
+    { id: "provider_groq", name: "Groq", type: "groq", envVar: "GROQ_API_KEY", defaultModel: "llama-3.3-70b-versatile" },
+  ];
+
+  let firstDone = false;
+  for (const seed of seeds) {
+    const key = process.env[seed.envVar];
+    if (!key) continue;
+    const isDefault = firstDone ? 0 : 1;
+    firstDone = true;
     await db.run(
       "INSERT INTO llm_providers (id, name, type, api_key_encrypted, default_model, is_default) VALUES (?, ?, ?, ?, ?, ?)",
-      "provider_anthropic", "Anthropic", "anthropic", process.env.ANTHROPIC_API_KEY, "claude-sonnet-4-6", 1
+      seed.id,
+      seed.name,
+      seed.type,
+      key,
+      seed.defaultModel,
+      isDefault,
     );
   }
 
-  if (process.env.OPENAI_API_KEY) {
+  // Always seed an Ollama entry pointing at localhost — no API key
+  // required — so self-hosters get a zero-config local-LLM path.
+  if (!firstDone || process.env.OMA_SEED_OLLAMA === "true") {
     await db.run(
-      "INSERT INTO llm_providers (id, name, type, api_key_encrypted, default_model, is_default) VALUES (?, ?, ?, ?, ?, ?)",
-      "provider_openai", "OpenAI", "openai", process.env.OPENAI_API_KEY, "gpt-4o", process.env.ANTHROPIC_API_KEY ? 0 : 1
+      "INSERT INTO llm_providers (id, name, type, base_url, default_model, is_default) VALUES (?, ?, ?, ?, ?, ?)",
+      "provider_ollama",
+      "Ollama (local)",
+      "ollama",
+      "http://localhost:11434/v1",
+      "llama3.3",
+      firstDone ? 0 : 1,
     );
   }
 }
