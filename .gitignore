@@ -1,7 +1,17 @@
 node_modules/
 dist/
+build/
 .turbo/
 .refs/
 *.tsbuildinfo
 .env
 .env.local
+.env.*.local
+data/
+*.db
+*.db-shm
+*.db-wal
+.claude/ralph-loop.local.md
+.DS_Store
+coverage/
+*.log
