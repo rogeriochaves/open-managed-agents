@@ -8,6 +8,8 @@ import {
 } from "../schemas/agents.js";
 import { pageCursorResponse } from "../schemas/common.js";
 import { getDB, newId } from "../db/index.js";
+import { auditLog } from "./governance.js";
+import { currentUserId } from "../lib/current-user.js";
 
 const tags = ["Agents"];
 
@@ -161,6 +163,7 @@ export function registerAgentRoutes(app: OpenAPIHono) {
     );
 
     const row = await db.get("SELECT * FROM agents WHERE id = ?", id);
+    await auditLog(await currentUserId(c), "create", "agent", id, JSON.stringify({ name: body.name }));
     return c.json(rowToAgent(row), 200);
   });
 
@@ -238,6 +241,7 @@ export function registerAgentRoutes(app: OpenAPIHono) {
     await db.run(`UPDATE agents SET ${updates.join(", ")} WHERE id = ?`, ...values);
 
     const row = await db.get("SELECT * FROM agents WHERE id = ?", agentId);
+    await auditLog(await currentUserId(c), "update", "agent", agentId);
     return c.json(rowToAgent(row), 200);
   });
 
@@ -290,6 +294,7 @@ export function registerAgentRoutes(app: OpenAPIHono) {
       throw Object.assign(new Error(`Agent ${agentId} not found`), { status: 404, type: "not_found" });
     }
 
+    await auditLog(await currentUserId(c), "archive", "agent", agentId);
     return c.json(rowToAgent(row), 200);
   });
 }

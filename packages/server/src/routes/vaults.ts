@@ -10,6 +10,8 @@ import {
 import { pageCursorResponse } from "../schemas/common.js";
 import { getDB, newId } from "../db/index.js";
 import { encrypt, decrypt } from "../lib/encryption.js";
+import { auditLog } from "./governance.js";
+import { currentUserId } from "../lib/current-user.js";
 
 const tags = ["Vaults"];
 
@@ -168,6 +170,7 @@ export function registerVaultRoutes(app: OpenAPIHono) {
       id, vaultId, body.name, encrypted, now, now
     );
     const row = await db.get("SELECT * FROM credentials WHERE id = ?", id);
+    await auditLog(await currentUserId(c), "create", "credential", id, JSON.stringify({ vault_id: vaultId, name: body.name }));
     return c.json(rowToCredential(row), 200);
   });
 
@@ -175,6 +178,7 @@ export function registerVaultRoutes(app: OpenAPIHono) {
     const { credentialId } = c.req.valid("param") as any;
     const db = await getDB();
     await db.run("DELETE FROM credentials WHERE id = ?", credentialId);
+    await auditLog(await currentUserId(c), "delete", "credential", credentialId);
     return c.json({ deleted: true }, 200);
   });
 }
