@@ -181,6 +181,10 @@ export function createEnvironment(params: EnvironmentCreateParams) {
   });
 }
 
+export function archiveEnvironment(id: string) {
+  return request<void>(`/environments/${id}`, { method: "DELETE" });
+}
+
 // ── Vaults ──────────────────────────────────────────────────────────────
 
 export function listVaults(params?: VaultListParams) {
