@@ -8,6 +8,7 @@ import {
   getStoredApiKey,
   setStoredApiKey,
 } from "./components/ui/api-key-dialog";
+import { AuthProvider } from "./lib/auth-context";
 import "./index.css";
 
 const queryClient = new QueryClient({
@@ -45,7 +46,9 @@ function Root() {
     <>
       <QueryClientProvider client={queryClient}>
         <BrowserRouter>
-          <App />
+          <AuthProvider>
+            <App />
+          </AuthProvider>
         </BrowserRouter>
       </QueryClientProvider>
       <ApiKeyDialog
