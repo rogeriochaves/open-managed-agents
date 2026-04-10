@@ -20,15 +20,15 @@ All notable changes to this project are documented here. Format follows [Keep a 
   - **docker-compose** — validates `docker-compose.yml` parses with `docker compose config -q` and checks all expected services are declared.
 
 #### Tests
-Started this cycle at zero server/cli tests. Ended at **233 total**:
+Started this cycle at zero server/cli tests. Ended at **240 total**:
 
 | Package | Files | Tests |
 |---|:---:|:---:|
-| `@open-managed-agents/server` | 17 | 136 |
+| `@open-managed-agents/server` | 19 | 143 |
 | `@open-managed-agents/web` | 12 | 90 |
 | `@open-managed-agents/cli` | 1 | 5 |
 | `@open-managed-agents/scenario-tests` | 1 | 2 |
-| **Total** | **31** | **233** |
+| **Total** | **33** | **240** |
 
 Each new test file has a sibling `specs/*.feature` documenting the scenarios in Gherkin.
 
@@ -60,6 +60,7 @@ Each new test file has a sibling `specs/*.feature` documenting the scenarios in 
 - The final `CMD`/`EXPOSE` surface is unchanged so `docker-compose.yml` and the Helm chart keep working. `docker compose config -q` remains clean.
 
 #### Features
+- **Real MCP client + tool loop** — the last "fake" gap in the agent runtime. Previously `resolveTools()` returned a single placeholder `mcp_${name}_query` tool per MCP server, and `executeBuiltinTool()` returned a canned "(MCP server integration pending)" string when the LLM called it. Now `resolveTools()` is async and walks `agentConfig.mcp_servers`, calling `loadConnectorToken()` + `listMCPTools()` (via `lib/mcp-client.ts` wrapping `@modelcontextprotocol/sdk`'s `StreamableHTTPClientTransport`) for each connector. Every remote tool is pushed into the LLM tool list with a `__mcp__<connector>__<originalName>` prefix plus an entry in a parallel `mcpRoutes` Map. `executeBuiltinTool()` detects the prefix and routes the call through `callMCPTool()`. Broken connectors (no token, unreachable, 401) are logged and skipped rather than failing the whole turn. `runAgentLoop()` grew an `organizationId` parameter that the events route resolves from `currentUser(c)` so there's no cross-org credential bleed. New routes: `GET /v1/mcp/connectors/:id/tools` returns the server's live tool catalog via the same client. 7 new server tests across `mcp-discovery-tools.test.ts` + `engine-mcp-tools.test.ts` + `mcp-connections.test.ts`.
 - **Vercel AI SDK provider layer** — replaced the hand-rolled Anthropic + OpenAI classes with a single `AISDKProvider` wrapper over the `ai` package. This expands supported LLM providers from 2 to **7** out of the box: `anthropic`, `openai`, `google` (Gemini), `mistral`, `groq`, `openai-compatible` (OpenRouter / Together / LM Studio / vLLM), and `ollama` (via the openai-compatible driver pinned to `http://localhost:11434/v1`). The public `LLMProvider` interface is unchanged so the engine and all routes keep compiling. `seedDefaultProviders()` now sweeps a prioritized env-var list (`ANTHROPIC_API_KEY` → `OPENAI_API_KEY` → `GOOGLE_GENERATIVE_AI_API_KEY` → `MISTRAL_API_KEY` → `GROQ_API_KEY`) and always seeds a zero-config local Ollama row so self-hosters get a working LLM path without any cloud API keys. Dropped the legacy `CHECK(type IN (...))` constraint on `llm_providers.type` via an SQLite table-rebuild migration so existing DBs can insert the new provider types.
 - **Agent builder chat endpoint** — new `POST /v1/agent-builder/chat` drives the "Describe your agent" flow on the Quickstart page. Takes a conversation history + draft config, calls the configured default LLM, parses a fenced `oma-draft` JSON block out of the reply, merges it with the prior draft, and returns the natural-language reply (fence stripped) plus the updated draft and a `done` flag. Handles 503 when no provider is configured, preserves the prior draft when the model forgets the fence, surfaces the provider id/name so the UI can show "using Anthropic claude-sonnet-4-6", and is covered by a 4-case stubbed test in `agent-builder.test.ts`.
 - **Two-column Quickstart with a real chat pane** — `packages/web/src/pages/quickstart.tsx` was flattened from single-column with a fake one-shot input into Claude's actual two-column shape: persistent chat pane on the left (sticky textarea at the bottom, message bubbles above) and the templates grid / template preview / draft preview / "Agent created" panel on the right. Left pane submits to `/v1/agent-builder/chat` on every turn and carries conversation + draft state between turns. Right pane reveals a YAML/JSON draft preview with connector chips once the assistant drafts an agent; the "Create agent" CTA only activates when `done:true` is signaled. Extended `quickstart.test.tsx` from 11 → 13 tests covering real chat send + reply, draft preview rendering, and the 503 error path.
