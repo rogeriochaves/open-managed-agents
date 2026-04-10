@@ -80,14 +80,19 @@ export function createAgent(params: AgentCreateParams) {
 }
 
 export function updateAgent(id: string, params: AgentUpdateParams) {
+  // NB: the server uses POST /v1/agents/:id for partial updates, NOT
+  // PUT. Keeping this wrong would 404 every Save click from the UI.
   return request<Agent>(`/agents/${id}`, {
-    method: "PUT",
+    method: "POST",
     body: JSON.stringify(params),
   });
 }
 
 export function archiveAgent(id: string) {
-  return request<void>(`/agents/${id}`, { method: "DELETE" });
+  // The archive route is POST /v1/agents/:id/archive (soft archive
+  // that sets archived_at). There is NO DELETE route — the previous
+  // client used DELETE which silently 404'd every Archive click.
+  return request<Agent>(`/agents/${id}/archive`, { method: "POST" });
 }
 
 // ── Sessions ────────────────────────────────────────────────────────────
@@ -186,7 +191,13 @@ export function createEnvironment(params: EnvironmentCreateParams) {
 }
 
 export function archiveEnvironment(id: string) {
-  return request<void>(`/environments/${id}`, { method: "DELETE" });
+  // POST /v1/environments/:id/archive is the SOFT archive (sets
+  // archived_at). DELETE /v1/environments/:id is the HARD delete
+  // path — previously the UI used DELETE which meant clicking
+  // "Archive" actually dropped the row permanently.
+  return request<Environment>(`/environments/${id}/archive`, {
+    method: "POST",
+  });
 }
 
 // ── Vaults ──────────────────────────────────────────────────────────────
@@ -209,7 +220,9 @@ export function createVault(params: VaultCreateParams) {
 }
 
 export function archiveVault(id: string) {
-  return request<void>(`/vaults/${id}`, { method: "DELETE" });
+  // Same shape as archiveEnvironment — POST /archive is soft, DELETE
+  // is hard. The UI means soft.
+  return request<Vault>(`/vaults/${id}/archive`, { method: "POST" });
 }
 
 // ── Vault credentials ──────────────────────────────────────────────────

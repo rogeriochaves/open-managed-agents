@@ -5,7 +5,15 @@ import { ArrowLeft, Archive, Copy, Check, Pencil, Save, X } from "lucide-react";
 import { Button } from "../components/ui/button";
 import { Badge, statusVariant } from "../components/ui/badge";
 import { CodeBlock } from "../components/ui/code-block";
+import { MCPConnectorBrowser } from "../components/mcp-connector-browser";
+import { ConnectorIcon } from "../components/ui/connector-icon";
 import * as api from "../lib/api";
+
+interface McpServerEntry {
+  name: string;
+  url?: string;
+  type?: string;
+}
 
 function agentToYaml(agent: any): string {
   const lines: string[] = [];
@@ -61,6 +69,7 @@ export function AgentDetailPage() {
   const [editDescription, setEditDescription] = useState("");
   const [editSystem, setEditSystem] = useState("");
   const [editModel, setEditModel] = useState("");
+  const [editMcpServers, setEditMcpServers] = useState<McpServerEntry[]>([]);
   const [saving, setSaving] = useState(false);
   const [archiving, setArchiving] = useState(false);
   const [editError, setEditError] = useState<string | null>(null);
@@ -78,7 +87,31 @@ export function AgentDetailPage() {
     setEditDescription(agent.description ?? "");
     setEditSystem(agent.system ?? "");
     setEditModel(agent.model?.id ?? "");
+    setEditMcpServers(
+      (agent.mcp_servers ?? []).map((s: any) => ({
+        name: s.name,
+        url: s.url,
+        type: s.type ?? "url",
+      })),
+    );
   }, [agent]);
+
+  const toggleMcpConnector = (connector: api.MCPConnector) => {
+    setEditMcpServers((prev) => {
+      const exists = prev.some((s) => s.name === connector.id);
+      if (exists) {
+        return prev.filter((s) => s.name !== connector.id);
+      }
+      return [
+        ...prev,
+        { name: connector.id, url: connector.url, type: "url" },
+      ];
+    });
+  };
+
+  const removeMcpServer = (name: string) => {
+    setEditMcpServers((prev) => prev.filter((s) => s.name !== name));
+  };
 
   const handleSave = async () => {
     if (!agent) return;
@@ -86,10 +119,15 @@ export function AgentDetailPage() {
     setEditError(null);
     try {
       await api.updateAgent(agent.id, {
+        // Optimistic concurrency token — the server rejects updates
+        // where this doesn't match the row's current version, so a
+        // stale tab can't silently overwrite another user's edits.
+        version: agent.version,
         name: editName.trim(),
         description: editDescription.trim() || null,
         system: editSystem.trim() || null,
         model: editModel.trim() || agent.model?.id,
+        mcp_servers: editMcpServers,
       } as any);
       await queryClient.invalidateQueries({ queryKey: ["agent", agentId] });
       setIsEditing(false);
@@ -106,6 +144,13 @@ export function AgentDetailPage() {
     setEditDescription(agent.description ?? "");
     setEditSystem(agent.system ?? "");
     setEditModel(agent.model?.id ?? "");
+    setEditMcpServers(
+      (agent.mcp_servers ?? []).map((s: any) => ({
+        name: s.name,
+        url: s.url,
+        type: s.type ?? "url",
+      })),
+    );
     setEditError(null);
     setIsEditing(false);
   };
@@ -291,13 +336,50 @@ export function AgentDetailPage() {
                 />
               </label>
 
+              {/* MCP servers — editable connector list */}
+              <div>
+                <span className="text-xs font-medium uppercase tracking-wider text-text-muted">
+                  MCP servers
+                </span>
+                {editMcpServers.length > 0 ? (
+                  <div className="mt-2 flex flex-wrap gap-1.5">
+                    {editMcpServers.map((s) => (
+                      <span
+                        key={s.name}
+                        className="inline-flex items-center gap-1 rounded-full border border-surface-border bg-surface-secondary px-2 py-0.5 text-xs text-text-primary"
+                      >
+                        <ConnectorIcon name={s.name} size={14} />
+                        {s.name}
+                        <button
+                          type="button"
+                          onClick={() => removeMcpServer(s.name)}
+                          className="cursor-pointer rounded-full p-0.5 text-text-muted hover:bg-red-500/10 hover:text-red-600"
+                          aria-label={`Remove ${s.name}`}
+                        >
+                          <X className="h-3 w-3" />
+                        </button>
+                      </span>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="mt-2 text-xs text-text-muted">
+                    No connectors. Pick one below to add it.
+                  </p>
+                )}
+                <div className="mt-3 rounded-md border border-surface-border bg-surface-secondary p-3">
+                  <MCPConnectorBrowser
+                    selectedConnectors={editMcpServers.map((s) => s.name)}
+                    onToggle={toggleMcpConnector}
+                  />
+                </div>
+              </div>
+
               {editError && (
                 <p className="text-xs text-red-600">{editError}</p>
               )}
 
               <p className="text-[11px] text-text-muted">
-                Tools, MCP servers, and skills are read-only for now — edit the
-                full config via{" "}
+                Tools and skills are still read-only — edit the full config via{" "}
                 <code className="font-mono">
                   PUT /v1/agents/{agent.id}
                 </code>

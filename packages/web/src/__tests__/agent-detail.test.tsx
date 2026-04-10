@@ -9,6 +9,28 @@ vi.mock("../lib/api", () => ({
   getAgent: vi.fn(),
   updateAgent: vi.fn(),
   archiveAgent: vi.fn(),
+  listMCPConnectors: vi.fn().mockResolvedValue({
+    data: [
+      {
+        id: "slack",
+        name: "Slack",
+        description: "Slack messaging",
+        url: "https://mcp.slack.com/sse",
+        icon: "slack",
+        category: "communication",
+        auth_type: "oauth" as const,
+      },
+      {
+        id: "notion",
+        name: "Notion",
+        description: "Notion docs",
+        url: "https://mcp.notion.com/sse",
+        icon: "notion",
+        category: "knowledge-base",
+        auth_type: "oauth" as const,
+      },
+    ],
+  }),
 }));
 
 import * as api from "../lib/api";
@@ -202,6 +224,10 @@ describe("AgentDetailPage", () => {
       expect(api.updateAgent).toHaveBeenCalledWith(
         "agent_test123",
         expect.objectContaining({
+          // The server REQUIRES version on updates for optimistic
+          // concurrency — without it every Save 400s with a Zod
+          // validation error. Regression guard.
+          version: 1,
           name: "Renamed Agent",
           description: "Updated desc",
           system: "You are helpful.",
@@ -269,5 +295,72 @@ describe("AgentDetailPage", () => {
     expect(confirmSpy).toHaveBeenCalled();
     expect(api.archiveAgent).not.toHaveBeenCalled();
     confirmSpy.mockRestore();
+  });
+
+  it("seeds existing mcp_servers into the edit form as removable chips", async () => {
+    vi.mocked(api.getAgent).mockResolvedValue({
+      ...mockAgent,
+      mcp_servers: [
+        { name: "slack", url: "https://mcp.slack.com/sse", type: "url" },
+      ],
+    } as any);
+    const user = userEvent.setup();
+    renderPage();
+
+    await waitFor(() => {
+      expect(screen.getByText("Test Agent")).toBeInTheDocument();
+    });
+    await user.click(screen.getByRole("button", { name: /Edit/i }));
+
+    // The chip row lists the existing connector with a remove button
+    const removeBtn = await screen.findByRole("button", { name: /Remove slack/i });
+    expect(removeBtn).toBeInTheDocument();
+  });
+
+  it("Save sends the edited mcp_servers list through api.updateAgent", async () => {
+    vi.mocked(api.getAgent).mockResolvedValue({
+      ...mockAgent,
+      mcp_servers: [],
+    } as any);
+    vi.mocked(api.updateAgent).mockResolvedValue({
+      ...mockAgent,
+      mcp_servers: [
+        { name: "notion", url: "https://mcp.notion.com/sse", type: "url" },
+      ],
+    } as any);
+
+    const user = userEvent.setup();
+    renderPage();
+
+    await waitFor(() => {
+      expect(screen.getByText("Test Agent")).toBeInTheDocument();
+    });
+    await user.click(screen.getByRole("button", { name: /Edit/i }));
+
+    // Wait for the MCPConnectorBrowser to render
+    await waitFor(() => {
+      expect(screen.getByText("Notion")).toBeInTheDocument();
+    });
+    // Click the Notion connector to add it
+    await user.click(screen.getByText("Notion"));
+
+    // Save
+    await user.click(
+      screen.getByRole("button", { name: /Save changes/i }),
+    );
+
+    await waitFor(() => {
+      expect(api.updateAgent).toHaveBeenCalledWith(
+        "agent_test123",
+        expect.objectContaining({
+          mcp_servers: [
+            expect.objectContaining({
+              name: "notion",
+              url: "https://mcp.notion.com/sse",
+            }),
+          ],
+        }),
+      );
+    });
   });
 });
