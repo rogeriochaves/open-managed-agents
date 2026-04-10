@@ -212,17 +212,27 @@ describe("MCP connector discovery", () => {
     expect(body.data.every((c) => c.category === firstCategory)).toBe(true);
   });
 
-  it("retrieves a single connector by id", async () => {
+  it("retrieves a single connector by id with all required fields", async () => {
     const res = await app.request("/v1/mcp/connectors/slack");
     expect(res.status).toBe(200);
     const body = (await res.json()) as {
       id: string;
       name: string;
       description: string;
+      url: string;
+      icon: string;
+      category: string;
+      auth_type: string;
+      connected: boolean;
     };
     expect(body.id).toBe("slack");
     expect(body.name).toBeTruthy();
     expect(body.description).toBeTruthy();
+    expect(body.url).toBeTruthy();
+    expect(body.icon).toBeTruthy();
+    expect(body.category).toBeTruthy();
+    expect(["oauth", "token", "none"]).toContain(body.auth_type);
+    expect(typeof body.connected).toBe("boolean");
   });
 
   it("returns 404 for an unknown connector", async () => {

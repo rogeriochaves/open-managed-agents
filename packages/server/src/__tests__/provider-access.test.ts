@@ -314,4 +314,78 @@ describe("Team-scoped MCP connector enforcement", () => {
     });
     expect(res.status).toBe(200);
   });
+
+  it("admins bypass MCP connector policy entirely (no lockout)", async () => {
+    // Ensure the connector is blocked first
+    await app.request(`/v1/teams/${teamId}/mcp-policies`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        cookie: `oma_session=${adminCookie}`,
+      },
+      body: JSON.stringify({ connector_id: "slack", policy: "blocked" }),
+    });
+
+    // Admin creates a session against the MCP agent — must still succeed
+    const res = await app.request("/v1/sessions", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        cookie: `oma_session=${adminCookie}`,
+      },
+      body: JSON.stringify({
+        agent: mcpAgentId,
+        environment_id: "env_default",
+      }),
+    });
+    expect(res.status).toBe(200);
+  });
+
+  it("denies when user is a member of multiple teams and ANY one blocks the connector", async () => {
+    // Admin creates a second team with no policy (defaults to allowed)
+    const team2Res = await app.request("/v1/organizations/org_default/teams", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        cookie: `oma_session=${adminCookie}`,
+      },
+      body: JSON.stringify({ name: "Marketing", slug: "marketing" }),
+    });
+    const team2 = (await team2Res.json()) as { id: string };
+
+    // Admin adds the regular user to team2
+    await app.request(`/v1/teams/${team2.id}/members`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        cookie: `oma_session=${adminCookie}`,
+      },
+      body: JSON.stringify({ user_id: regularUserId, role: "member" }),
+    });
+
+    // Ensure slack is blocked on the Engineering team (still blocked from prior test)
+    await app.request(`/v1/teams/${teamId}/mcp-policies`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        cookie: `oma_session=${adminCookie}`,
+      },
+      body: JSON.stringify({ connector_id: "slack", policy: "blocked" }),
+    });
+
+    // Regular user is in team2 (no policy = allowed) BUT also in teamId (blocked)
+    // "any team blocks" rule → must be denied
+    const res = await app.request("/v1/sessions", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        cookie: `oma_session=${regularUserCookie}`,
+      },
+      body: JSON.stringify({
+        agent: mcpAgentId,
+        environment_id: "env_default",
+      }),
+    });
+    expect(res.status).toBe(403);
+  });
 });
