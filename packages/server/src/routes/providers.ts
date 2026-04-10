@@ -130,14 +130,24 @@ function rowToProvider(row: any) {
 }
 
 /**
- * Seed default providers from environment variables if none exist.
- * The FIRST provider whose env var is set becomes the default — the
- * order here is Anthropic → OpenAI → Google → Mistral → Groq → Ollama.
+ * Seed default providers from environment variables. Runs on every
+ * boot and is idempotent per-stable-id: if a seed's env var is set
+ * and no provider with that stable ID exists, insert it. Already-
+ * present providers are left untouched so user edits survive reboots.
+ *
+ * This gives a specific UX: engineers routinely add a new API key
+ * to .env after the first boot ("oh let me also try OpenAI"). With
+ * the old `if (count > 0) return;` guard, that new env var would
+ * silently never surface in the UI — the seed had already run once
+ * and permanently disqualified itself.
+ *
+ * The first provider seeded in any boot where the DB is otherwise
+ * empty of providers becomes the default. Later boots that add a
+ * provider to a non-empty DB never change the default — is_default
+ * stays with whoever has it.
  */
 export async function seedDefaultProviders() {
   const db = await getDB();
-  const countRow = await db.get<{ c: number }>("SELECT COUNT(*) as c FROM llm_providers");
-  if ((countRow?.c ?? 0) > 0) return;
 
   const seeds: Array<{
     id: string;
@@ -145,7 +155,6 @@ export async function seedDefaultProviders() {
     type: string;
     envVar: string;
     defaultModel: string;
-    baseUrl?: string;
   }> = [
     { id: "provider_anthropic", name: "Anthropic", type: "anthropic", envVar: "ANTHROPIC_API_KEY", defaultModel: "claude-sonnet-4-6" },
     { id: "provider_openai", name: "OpenAI", type: "openai", envVar: "OPENAI_API_KEY", defaultModel: "gpt-5-mini" },
@@ -154,12 +163,26 @@ export async function seedDefaultProviders() {
     { id: "provider_groq", name: "Groq", type: "groq", envVar: "GROQ_API_KEY", defaultModel: "llama-3.3-70b-versatile" },
   ];
 
-  let firstDone = false;
+  const existingCount =
+    (await db.get<{ c: number }>("SELECT COUNT(*) as c FROM llm_providers"))?.c ?? 0;
+  let anySeeded = false;
+
   for (const seed of seeds) {
     const key = process.env[seed.envVar];
     if (!key) continue;
-    const isDefault = firstDone ? 0 : 1;
-    firstDone = true;
+
+    const existing = await db.get<{ id: string }>(
+      "SELECT id FROM llm_providers WHERE id = ?",
+      seed.id,
+    );
+    if (existing) continue;
+
+    // Only the very first provider to land in an otherwise-empty
+    // table gets is_default. Once any provider exists, we never
+    // auto-flip the default — the user owns that decision.
+    const isDefault = existingCount === 0 && !anySeeded ? 1 : 0;
+    anySeeded = true;
+
     await db.run(
       "INSERT INTO llm_providers (id, name, type, api_key_encrypted, default_model, is_default) VALUES (?, ?, ?, ?, ?, ?)",
       seed.id,
@@ -173,7 +196,17 @@ export async function seedDefaultProviders() {
 
   // Always seed an Ollama entry pointing at localhost — no API key
   // required — so self-hosters get a zero-config local-LLM path.
-  if (!firstDone || process.env.OMA_SEED_OLLAMA === "true") {
+  // Same idempotency rule: only insert if provider_ollama doesn't
+  // already exist.
+  const ollamaExists = await db.get<{ id: string }>(
+    "SELECT id FROM llm_providers WHERE id = ?",
+    "provider_ollama",
+  );
+  const shouldSeedOllama =
+    !ollamaExists &&
+    ((existingCount === 0 && !anySeeded) || process.env.OMA_SEED_OLLAMA === "true");
+  if (shouldSeedOllama) {
+    const isDefault = existingCount === 0 && !anySeeded ? 1 : 0;
     await db.run(
       "INSERT INTO llm_providers (id, name, type, base_url, default_model, is_default) VALUES (?, ?, ?, ?, ?, ?)",
       "provider_ollama",
@@ -181,7 +214,7 @@ export async function seedDefaultProviders() {
       "ollama",
       "http://localhost:11434/v1",
       "llama3.3",
-      firstDone ? 0 : 1,
+      isDefault,
     );
   }
 }
@@ -249,7 +282,39 @@ export function registerProviderRoutes(app: OpenAPIHono) {
   app.openapi(deleteProviderRoute, async (c) => {
     const { providerId } = c.req.valid("param");
     const db = await getDB();
+
+    // If we're deleting the current default, promote the next
+    // surviving provider so the system never ends up in a "no
+    // default" state. Without this, new sessions that fall back
+    // to the default provider get null and fail to start.
+    const target = await db.get<{ is_default: number }>(
+      "SELECT is_default FROM llm_providers WHERE id = ?",
+      providerId,
+    );
     await db.run("DELETE FROM llm_providers WHERE id = ?", providerId);
+
+    if (target?.is_default) {
+      // Prefer a provider that actually has credentials configured.
+      // `api_key_encrypted IS NOT NULL` covers any cloud provider;
+      // `base_url IS NOT NULL` covers self-hosted providers like
+      // Ollama / vLLM that authenticate by endpoint, not by key.
+      // Falling through to "anything at all" ensures we never leave
+      // a zero-default state even in pathological setups.
+      const next =
+        (await db.get<{ id: string }>(
+          "SELECT id FROM llm_providers WHERE api_key_encrypted IS NOT NULL OR base_url IS NOT NULL ORDER BY created_at ASC LIMIT 1",
+        )) ??
+        (await db.get<{ id: string }>(
+          "SELECT id FROM llm_providers ORDER BY created_at ASC LIMIT 1",
+        ));
+      if (next) {
+        await db.run(
+          "UPDATE llm_providers SET is_default = 1 WHERE id = ?",
+          next.id,
+        );
+      }
+    }
+
     clearProviderCache();
     await auditLog(await currentUserId(c), "delete", "provider", providerId);
     return c.json({ deleted: true }, 200);

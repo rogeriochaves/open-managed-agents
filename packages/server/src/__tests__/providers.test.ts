@@ -197,4 +197,28 @@ describe("Providers API (multi-LLM)", () => {
       after.data.find((p) => p.type === "openai-compatible")
     ).toBeUndefined();
   });
+
+  it("auto-promotes a replacement default when the default is deleted", async () => {
+    // Currently OpenAI is the default (reassigned in the
+    // `re-assigning is_default clears the previous default` test
+    // earlier). Delete it and verify a surviving provider gets
+    // promoted so the system never lands in a "0 defaults" state
+    // that would break fallback on new sessions.
+    const before = await listProviders();
+    const defaultBefore = before.data.find((p) => p.is_default);
+    expect(defaultBefore?.type).toBe("openai");
+
+    const delRes = await app.request(
+      `/v1/providers/${defaultBefore!.id}`,
+      { method: "DELETE" }
+    );
+    expect(delRes.status).toBe(200);
+
+    const after = await listProviders();
+    const defaults = after.data.filter((p) => p.is_default);
+    // Exactly one survivor has been promoted
+    expect(defaults.length).toBe(1);
+    // And the deleted provider is actually gone
+    expect(after.data.find((p) => p.id === defaultBefore!.id)).toBeUndefined();
+  });
 });
