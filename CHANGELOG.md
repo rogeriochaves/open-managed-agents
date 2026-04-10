@@ -20,15 +20,15 @@ All notable changes to this project are documented here. Format follows [Keep a 
   - **docker-compose** — validates `docker-compose.yml` parses with `docker compose config -q` and checks all expected services are declared.
 
 #### Tests
-Started this cycle at zero server/cli tests. Ended at **197 total**:
+Started this cycle at zero server/cli tests. Ended at **205 total**:
 
 | Package | Files | Tests |
 |---|:---:|:---:|
-| `@open-managed-agents/server` | 13 | 102 |
+| `@open-managed-agents/server` | 14 | 110 |
 | `@open-managed-agents/web` | 12 | 88 |
 | `@open-managed-agents/cli` | 1 | 5 |
 | `@open-managed-agents/scenario-tests` | 1 | 2 |
-| **Total** | **27** | **197** |
+| **Total** | **28** | **205** |
 
 Each new test file has a sibling `specs/*.feature` documenting the scenarios in Gherkin.
 
@@ -45,11 +45,15 @@ Each new test file has a sibling `specs/*.feature` documenting the scenarios in 
 - `server/agents-update.test.ts` — update path, version auto-increment, partial updates, metadata merge, null-key removal.
 - `server/destructive.test.ts` — archive + delete paths for sessions (with events cascade), vaults, environments.
 - `server/audit-auto.test.ts` — regression guard: every mutation writes a matching audit row.
+- `server/provider-access.test.ts` — team-scoped provider access enforcement (403 for non-member, 200 after team add, admin bypass) plus team-scoped MCP connector enforcement (default-allow, explicit block, requires_approval, re-allow).
 - `cli/client.test.ts` — CLI client points at self-hosted base URL; API key precedence.
 - `scripts/cli-smoke-test.sh` — end-to-end binary drives the live server through 5 subcommands.
 - `scenario-tests/agent-creation.scenario.test.ts` — live Claude + gpt-5-mini judge (opt-in, ~45s).
 
 #### Features
+- **SSO provider discovery** — `GET /v1/auth/sso-providers` returns each org's configured SSO provider + `login_url` so a login UI can render "Sign in with Okta / Google / …" buttons. The raw `sso_config` blob (which may contain secret fields like `client_secret_env`) is deliberately never exposed.
+- **Team-scoped provider access enforcement** — `POST /v1/sessions` now calls `canUseProvider()` and returns 403 if the caller is not on a team with an enabled `team_provider_access` row for the agent's provider. Admins bypass (no lockout).
+- **Team-scoped MCP connector enforcement** — same flow via `canUseConnector()`. Default-allow semantics (no policy row = allowed) to keep existing installs backward-compatible; `blocked` or `requires_approval` in any of the caller's team memberships denies with 403 naming the offending connector.
 - **Automatic audit logging** on every mutation: agents, sessions, environments, providers, vaults, credentials, organizations, teams, projects, users.
 - **Server app factory** — `packages/server/src/app.ts` `createApp()` separates wiring from `serve()` so tests can drive the real Hono app in-process via `app.request()`.
 - **Light-mode UI redesign** — rewrote `index.css` with LangWatch-inspired semantic tokens (`bg-page`, `bg-surface`, `bg-panel`, `fg-primary`), Inter font, orange brand accent, backdrop-blur glass helpers. Made light mode the default.
@@ -62,6 +66,8 @@ Each new test file has a sibling `specs/*.feature` documenting the scenarios in 
 2. **`GET /v1/mcp/connectors/{id}` with an unknown id returned 500, not 404.** The route threw a bare `Error` with no status, so the global handler coerced it. Now throws with `status: 404, type: "not_found"`. Caught by `server/environments-mcp.test.ts`.
 3. **CLI hit `api.anthropic.com` instead of the self-hosted server.** Copy-pasted Anthropic SDK client had no baseURL override. `OMA_API_BASE` / `OPEN_MANAGED_AGENTS_API_BASE` now resolve to the SDK's `baseURL`, with `OMA_API_KEY` > `ANTHROPIC_API_KEY` > `"oma-local"` precedence. Caught by `cli/client.test.ts` + `scripts/cli-smoke-test.sh`.
 4. **`auditLog()` was declared but never called from any route.** The README's "Full audit logging — track all actions" claim was not backed by code — the `audit_log` table stayed empty regardless of activity. Now wired into every mutation across agents, sessions, environments, providers, vaults, credentials, and governance CRUD via a `currentUserId(c)` helper. Caught by `server/audit-auto.test.ts`.
+5. **`team_provider_access` was persisted but never enforced.** Rows were created/read/updated via the governance APIs but nothing ever consulted them at request time — any authenticated user could create a session against any provider. `POST /v1/sessions` now calls `canUseProvider()` and returns 403 if the caller has no team membership with an enabled grant. Caught by `server/provider-access.test.ts`.
+6. **`team_mcp_policies` was persisted but never enforced.** Same shape as gap #5 on the MCP connector side — the README's "Per-team allow/block" claim was metadata only. Session create now iterates the agent's `mcp_servers` and calls `canUseConnector()` per connector (default-allow for backward compat, `blocked` or `requires_approval` in any team denies). Caught by the MCP-enforcement cases in `server/provider-access.test.ts`.
 
 ### Fixed (quality)
 - `packages/server/tsconfig.json` and `packages/cli/tsconfig.json` now `exclude` `src/__tests__` and `*.test.ts` — tests used to be shipped in the production `dist/`.
