@@ -13,9 +13,10 @@ All notable changes to this project are documented here. Format follows [Keep a 
 - `.github/dependabot.yml` — weekly updates for npm (minor/patch batched, majors individual), GitHub Actions, and Docker base images.
 
 #### CI
-- `.github/workflows/ci.yml` with 4 jobs:
+- `.github/workflows/ci.yml` with 5 jobs:
   - **test** — typecheck + full test suite + build across all 5 packages.
   - **sqlite-smoke** — boots the production server binary with SQLite on an alt port and drives the compiled `oma` CLI against it via `scripts/cli-smoke-test.sh`.
+  - **postgres-smoke** — same shape as sqlite-smoke, but spins up a real `postgres:16-alpine` service container with a health probe, sets `DATABASE_URL=postgres://oma:…@localhost:5432/oma`, and greps the server boot log for `Database: postgres` so a silent fallback to SQLite fails the job loudly. Exercises `translateSql` `?`→`$1..$N` and `INSERT ... ON CONFLICT DO NOTHING` end-to-end.
   - **helm** — lints the chart and renders it in sqlite / embedded-postgres / external-postgres modes, asserting expected Kubernetes kinds.
   - **docker-compose** — validates `docker-compose.yml` parses with `docker compose config -q` and checks all expected services are declared.
 

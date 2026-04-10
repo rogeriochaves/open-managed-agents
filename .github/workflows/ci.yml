@@ -100,6 +100,92 @@ jobs:
 
           kill $SERVER_PID || true
 
+  postgres-smoke:
+    name: Postgres boot smoke test
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    needs: test
+
+    # Same flow as sqlite-smoke, but the server boots with DATABASE_URL
+    # pointing at a real postgres service container. This exercises the
+    # dialect-aware schema (translateSql $1..$N placeholders, INSERT ON
+    # CONFLICT, CURRENT_TIMESTAMP defaults) end-to-end — the unit tests
+    # for translateSql cover the function in isolation but nothing else
+    # actually boots the server on postgres.
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_PASSWORD: oma-ci
+          POSTGRES_USER: oma
+          POSTGRES_DB: oma
+        ports:
+          - 5432:5432
+        # Wait until pg_isready reports the instance is accepting
+        # connections before the job's own steps start.
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.30.3
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build
+        run: pnpm build
+
+      - name: Boot server with Postgres + smoke-test the CLI against it
+        env:
+          DATABASE_URL: postgres://oma:oma-ci@localhost:5432/oma
+          AUTH_ENABLED: "false"
+          OMA_DEFAULT_ADMIN_PASSWORD: ci-test-pw
+          PORT: "3099"
+        run: |
+          # Capture the server log so we can assert the postgres
+          # adapter was actually picked.
+          node packages/server/dist/index.js > /tmp/oma-server.log 2>&1 &
+          SERVER_PID=$!
+
+          for i in $(seq 1 30); do
+            if curl -sSf -o /dev/null http://localhost:3099/health; then
+              echo "Server up"
+              break
+            fi
+            sleep 1
+          done
+
+          # Fail loudly if the server silently fell back to SQLite.
+          # The adapter logs "Database: postgres" or "Database: sqlite ..."
+          # on boot — we need to see the postgres line to know the
+          # translateSql path is actually exercised.
+          if ! grep -q "Database: postgres" /tmp/oma-server.log; then
+            echo "✗ Server did not boot on the postgres adapter"
+            echo "--- server log ---"
+            cat /tmp/oma-server.log
+            exit 1
+          fi
+          echo "✓ Server booted on the postgres adapter"
+
+          OMA_API_BASE=http://localhost:3099 ./scripts/cli-smoke-test.sh
+
+          kill $SERVER_PID || true
+
   helm:
     name: Helm chart lint + render
     runs-on: ubuntu-latest
