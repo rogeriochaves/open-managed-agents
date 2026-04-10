@@ -240,6 +240,42 @@ export function listProviderModels(providerId: string) {
   return request<{ models: string[] }>(`/providers/${providerId}/models`);
 }
 
+// ── Agent builder chat ───────────────────────────────────────────────
+
+export interface AgentBuilderMessage {
+  role: "user" | "assistant";
+  content: string;
+}
+
+export interface AgentBuilderDraft {
+  name?: string;
+  description?: string;
+  system?: string;
+  model?: string;
+  mcp_servers?: Array<{ name: string; url?: string; type?: string }>;
+  tools?: Array<Record<string, unknown>>;
+  skills?: Array<{ type: string; skill_id: string }>;
+}
+
+export interface AgentBuilderChatResponse {
+  reply: string;
+  draft: AgentBuilderDraft;
+  done: boolean;
+  provider: { id: string; name: string };
+}
+
+export function agentBuilderChat(params: {
+  messages: AgentBuilderMessage[];
+  draft?: AgentBuilderDraft;
+  provider_id?: string;
+  model?: string;
+}) {
+  return request<AgentBuilderChatResponse>("/agent-builder/chat", {
+    method: "POST",
+    body: JSON.stringify(params),
+  });
+}
+
 // ── MCP Discovery ──────────────────────────────────────────────────────────
 
 export interface MCPConnector {

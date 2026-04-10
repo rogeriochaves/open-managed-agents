@@ -10,6 +10,26 @@ vi.mock("../lib/api", () => ({
   createEnvironment: vi.fn(),
   createSession: vi.fn(),
   sendSessionEvents: vi.fn(),
+  agentBuilderChat: vi.fn(),
+  listProviders: vi.fn().mockResolvedValue({
+    data: [
+      {
+        id: "provider_anthropic",
+        name: "Anthropic",
+        type: "anthropic",
+        base_url: null,
+        default_model: "claude-sonnet-4-6",
+        is_default: true,
+        has_api_key: true,
+        created_at: "2026-01-01T00:00:00.000Z",
+        updated_at: "2026-01-01T00:00:00.000Z",
+      },
+    ],
+  }),
+  listProviderModels: vi
+    .fn()
+    .mockResolvedValue({ models: ["claude-sonnet-4-6"] }),
+  listMCPConnectors: vi.fn().mockResolvedValue({ data: [] }),
 }));
 
 import * as api from "../lib/api";
@@ -32,26 +52,26 @@ describe("QuickstartPage", () => {
     vi.clearAllMocks();
   });
 
-  it("renders the quickstart heading", () => {
+  it("renders the 'What do you want to build?' chat heading", () => {
     renderPage();
     expect(screen.getByText("What do you want to build?")).toBeInTheDocument();
   });
 
-  it("renders subtitle", () => {
+  it("renders the chat empty state hint", () => {
     renderPage();
     expect(
-      screen.getByText("Describe your agent or start with a template.")
+      screen.getByText(/Tell me what you want your agent to do/i)
     ).toBeInTheDocument();
   });
 
-  it("renders describe your agent input", () => {
+  it("renders the chat textarea", () => {
     renderPage();
     expect(
       screen.getByPlaceholderText("Describe your agent...")
     ).toBeInTheDocument();
   });
 
-  it("renders Browse templates heading", () => {
+  it("renders Browse templates heading on the right side", () => {
     renderPage();
     expect(screen.getByText("Browse templates")).toBeInTheDocument();
   });
@@ -93,16 +113,6 @@ describe("QuickstartPage", () => {
     expect(screen.getByText("Template")).toBeInTheDocument();
   });
 
-  it("shows YAML and JSON tabs in template preview", async () => {
-    const user = userEvent.setup();
-    renderPage();
-
-    await user.click(screen.getByText("Blank agent config"));
-
-    expect(screen.getByText("YAML")).toBeInTheDocument();
-    expect(screen.getByText("JSON")).toBeInTheDocument();
-  });
-
   it("goes back to templates on Back click", async () => {
     const user = userEvent.setup();
     renderPage();
@@ -120,5 +130,87 @@ describe("QuickstartPage", () => {
     expect(screen.getByText("Configure environment")).toBeInTheDocument();
     expect(screen.getByText("Start session")).toBeInTheDocument();
     expect(screen.getByText("Integrate")).toBeInTheDocument();
+  });
+
+  it("sends a message through the agent-builder chat and renders the assistant reply", async () => {
+    (api.agentBuilderChat as any).mockResolvedValueOnce({
+      reply: "Sure! Tell me what tools it needs.",
+      draft: {
+        name: "my-agent",
+        description: "a helpful assistant",
+        system: "You are helpful.",
+      },
+      done: false,
+      provider: { id: "provider_anthropic", name: "Anthropic" },
+    });
+
+    const user = userEvent.setup();
+    renderPage();
+
+    const textarea = screen.getByPlaceholderText("Describe your agent...");
+    await user.type(textarea, "I want a support agent");
+    // Enter key submits (Shift+Enter inserts newline)
+    await user.keyboard("{Enter}");
+
+    await waitFor(() => {
+      expect(
+        screen.getByText("Sure! Tell me what tools it needs."),
+      ).toBeInTheDocument();
+    });
+
+    expect(api.agentBuilderChat).toHaveBeenCalledWith(
+      expect.objectContaining({
+        messages: [
+          { role: "user", content: "I want a support agent" },
+        ],
+      }),
+    );
+  });
+
+  it("shows the draft preview on the right after the assistant returns a named draft", async () => {
+    (api.agentBuilderChat as any).mockResolvedValueOnce({
+      reply: "Got it — here's the draft.",
+      draft: {
+        name: "support-agent",
+        description: "Answers support questions",
+        system: "You are a support agent.",
+      },
+      done: false,
+      provider: { id: "provider_anthropic", name: "Anthropic" },
+    });
+
+    const user = userEvent.setup();
+    renderPage();
+
+    const textarea = screen.getByPlaceholderText("Describe your agent...");
+    await user.type(textarea, "support agent");
+    await user.keyboard("{Enter}");
+
+    await waitFor(() => {
+      expect(screen.getByText("Draft agent")).toBeInTheDocument();
+    });
+    expect(screen.getByText("support-agent")).toBeInTheDocument();
+    const createBtn = screen.getByRole("button", { name: /Create agent/i });
+    // Create button is disabled until done=true
+    expect(createBtn).toBeDisabled();
+  });
+
+  it("shows a friendly error when the builder chat returns 503 (no provider)", async () => {
+    const err: any = new Error("API 503: provider_not_configured");
+    err.status = 503;
+    (api.agentBuilderChat as any).mockRejectedValueOnce(err);
+
+    const user = userEvent.setup();
+    renderPage();
+
+    const textarea = screen.getByPlaceholderText("Describe your agent...");
+    await user.type(textarea, "hi");
+    await user.keyboard("{Enter}");
+
+    await waitFor(() => {
+      expect(
+        screen.getByText(/No LLM provider configured/i),
+      ).toBeInTheDocument();
+    });
   });
 });

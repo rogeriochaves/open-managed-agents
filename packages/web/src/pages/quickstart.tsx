@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useRef, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import {
@@ -9,6 +9,9 @@ import {
   Save,
   Play,
   ChevronDown,
+  Sparkles,
+  Send,
+  Loader2,
 } from "lucide-react";
 import { Button } from "../components/ui/button";
 import { CodeBlock } from "../components/ui/code-block";
@@ -16,6 +19,10 @@ import { Badge } from "../components/ui/badge";
 import { ConnectorIcon } from "../components/ui/connector-icon";
 import { MCPConnectorBrowser } from "../components/mcp-connector-browser";
 import * as api from "../lib/api";
+import type {
+  AgentBuilderMessage,
+  AgentBuilderDraft,
+} from "../lib/api";
 import type { Agent, Environment, Session } from "@open-managed-agents/types";
 
 /* ── Template data ───────────────────────────────────────────────────── */
@@ -400,7 +407,6 @@ export function QuickstartPage() {
   const [completed, setCompleted] = useState<Set<number>>(new Set());
   const [selectedTemplate, setSelectedTemplate] = useState<Template | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
-  const [description, setDescription] = useState("");
   const [createdAgent, setCreatedAgent] = useState<Agent | null>(null);
   const [createdEnv, setCreatedEnv] = useState<Environment | null>(null);
   const [createdSession, setCreatedSession] = useState<Session | null>(null);
@@ -411,6 +417,22 @@ export function QuickstartPage() {
   const [selectedProviderId, setSelectedProviderId] = useState<string | null>(null);
   const [selectedModel, setSelectedModel] = useState<string>("claude-sonnet-4-6");
   const [showProviderDropdown, setShowProviderDropdown] = useState(false);
+
+  // ── Agent builder chat state ─────────────────────────────────────
+  const [builderMessages, setBuilderMessages] = useState<AgentBuilderMessage[]>([]);
+  const [builderDraft, setBuilderDraft] = useState<AgentBuilderDraft>({});
+  const [builderInput, setBuilderInput] = useState("");
+  const [builderLoading, setBuilderLoading] = useState(false);
+  const [builderDone, setBuilderDone] = useState(false);
+  const [builderError, setBuilderError] = useState<string | null>(null);
+  const chatEndRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const el = chatEndRef.current;
+    if (el && typeof el.scrollIntoView === "function") {
+      el.scrollIntoView({ behavior: "smooth" });
+    }
+  }, [builderMessages, builderLoading]);
 
   const { data: providersData } = useQuery({
     queryKey: ["providers"],
@@ -482,37 +504,62 @@ export function QuickstartPage() {
     }
   };
 
-  const handleDescriptionSubmit = async () => {
-    if (!description.trim()) return;
+  const sendBuilderMessage = async () => {
+    if (!builderInput.trim() || builderLoading) return;
+    const text = builderInput.trim();
+    setBuilderInput("");
+    setBuilderError(null);
+
+    const nextMessages: AgentBuilderMessage[] = [
+      ...builderMessages,
+      { role: "user", content: text },
+    ];
+    setBuilderMessages(nextMessages);
+    setBuilderLoading(true);
+
+    try {
+      const result = await api.agentBuilderChat({
+        messages: nextMessages,
+        draft: builderDraft,
+        ...(selectedProvider?.id ? { provider_id: selectedProvider.id } : {}),
+        ...(selectedModel ? { model: selectedModel } : {}),
+      });
+      setBuilderMessages([
+        ...nextMessages,
+        { role: "assistant", content: result.reply },
+      ]);
+      setBuilderDraft(result.draft);
+      setBuilderDone(result.done);
+    } catch (err: any) {
+      const status = err?.status;
+      if (status === 503) {
+        setBuilderError(
+          "No LLM provider configured. Set ANTHROPIC_API_KEY / OPENAI_API_KEY in your environment (or add one under Settings → Providers) and restart the server.",
+        );
+      } else {
+        setBuilderError(err?.message ?? "Something went wrong talking to the LLM.");
+      }
+    } finally {
+      setBuilderLoading(false);
+    }
+  };
+
+  const handleCreateFromDraft = async () => {
+    if (!builderDraft.name) return;
     setIsCreating(true);
     try {
       const agent = await api.createAgent({
-        name: description.slice(0, 40).replace(/\s+/g, "-").toLowerCase(),
-        description,
+        name: builderDraft.name,
+        description: builderDraft.description ?? "",
         model: selectedModel || "claude-sonnet-4-6",
-        system: description,
+        system: builderDraft.system ?? "You are a helpful assistant.",
+        mcp_servers: builderDraft.mcp_servers ?? [],
         ...(selectedProvider?.id ? { model_provider_id: selectedProvider.id } : {}),
       } as any);
       setCreatedAgent(agent);
       markCompleted(0);
-    } catch {
-      setCreatedAgent({
-        id: "agent_demo_" + Date.now(),
-        type: "agent",
-        name: description.slice(0, 40).replace(/\s+/g, "-").toLowerCase(),
-        description,
-        system: description,
-        model: { id: "claude-sonnet-4-6" },
-        tools: [],
-        mcp_servers: [],
-        skills: [],
-        metadata: {},
-        version: 1,
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-        archived_at: null,
-      });
-      markCompleted(0);
+    } catch (err: any) {
+      setBuilderError(err?.message ?? "Failed to create the agent.");
     } finally {
       setIsCreating(false);
     }
@@ -552,38 +599,78 @@ export function QuickstartPage() {
 
   /* ── Render helpers ────────────────────────────────────────────────── */
 
-  const renderTemplateSelection = () => (
-    <div>
-      {/* Description input */}
-      <h2 className="text-xl font-semibold text-text-primary">
-        What do you want to build?
-      </h2>
-      <p className="mt-1 text-sm text-text-secondary">
-        Describe your agent or start with a template.
-      </p>
-      <div className="mt-4 flex gap-2">
-        <input
-          type="text"
-          value={description}
-          onChange={(e) => setDescription(e.target.value)}
-          placeholder="Describe your agent..."
-          className="flex-1 rounded-lg border border-surface-border bg-surface-secondary px-3 py-2 text-sm text-text-primary placeholder:text-text-muted focus:border-accent-blue focus:outline-none"
-          onKeyDown={(e) => {
-            if (e.key === "Enter") handleDescriptionSubmit();
-          }}
-        />
-        <Button
-          variant="primary"
-          onClick={handleDescriptionSubmit}
-          disabled={!description.trim() || isCreating}
-        >
-          {isCreating ? "Creating..." : "Submit"}
-        </Button>
-      </div>
+  /* Right-side content for step 0 (templates / template preview / draft preview) */
+  const renderStepZeroRight = () => {
+    if (createdAgent) return renderAgentCreated();
+    if (selectedTemplate) return renderTemplatePreview();
+    if (builderDraft.name) return renderDraftPreview();
+    return renderTemplatesGrid();
+  };
 
+  const renderDraftPreview = () => {
+    const draftConfig = {
+      name: builderDraft.name,
+      description: builderDraft.description,
+      model: selectedModel || "claude-sonnet-4-6",
+      system: builderDraft.system,
+      mcp_servers: builderDraft.mcp_servers ?? [],
+      skills: builderDraft.skills ?? [],
+    };
+    const yamlStr = toYaml(draftConfig as Record<string, unknown>);
+    const jsonStr = JSON.stringify(draftConfig, null, 2);
+
+    return (
+      <div>
+        <div className="flex items-center justify-between">
+          <div>
+            <span className="text-xs uppercase tracking-wider text-text-muted">
+              Draft agent
+            </span>
+            <h2 className="text-lg font-semibold text-text-primary">
+              {builderDraft.name}
+            </h2>
+          </div>
+          <Button
+            variant="primary"
+            onClick={handleCreateFromDraft}
+            disabled={isCreating || !builderDone}
+            title={builderDone ? "Create agent" : "Keep refining until you're ready"}
+          >
+            {isCreating ? "Creating..." : "Create agent"}
+          </Button>
+        </div>
+        {!builderDone && (
+          <p className="mt-2 text-xs text-text-muted">
+            Keep chatting to refine — the Create button activates when the
+            assistant says it's ready.
+          </p>
+        )}
+        <div className="mt-4">
+          <CodeBlock configs={{ YAML: yamlStr, JSON: jsonStr }} />
+        </div>
+        {(builderDraft.mcp_servers?.length ?? 0) > 0 && (
+          <div className="mt-4">
+            <h3 className="text-xs uppercase tracking-wider text-text-muted">
+              Connectors
+            </h3>
+            <div className="mt-2 flex flex-wrap gap-2">
+              {builderDraft.mcp_servers!.map((s) => (
+                <Badge key={s.name} variant="default">
+                  <ConnectorIcon name={s.name} size={14} /> {s.name}
+                </Badge>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  const renderTemplatesGrid = () => (
+    <div>
       {/* Provider & Model selector */}
       {providers.length > 0 && (
-        <div className="mt-4 flex items-center gap-3">
+        <div className="mb-6 flex items-center gap-3">
           <div className="relative">
             <button
               onClick={() => setShowProviderDropdown(!showProviderDropdown)}
@@ -594,7 +681,7 @@ export function QuickstartPage() {
               <ChevronDown className="h-3.5 w-3.5 text-text-muted" />
             </button>
             {showProviderDropdown && (
-              <div className="absolute left-0 top-full z-10 mt-1 w-48 rounded-lg border border-surface-border bg-surface-card shadow-lg">
+              <div className="absolute left-0 top-full z-10 mt-1 w-56 rounded-lg border border-surface-border bg-surface-card shadow-lg">
                 {providers.map((p) => (
                   <button
                     key={p.id}
@@ -628,9 +715,6 @@ export function QuickstartPage() {
           </select>
         </div>
       )}
-
-      {/* Separator */}
-      <div className="my-6 border-t border-surface-border" />
 
       {/* Template grid */}
       <div className="flex items-center justify-between">
@@ -1071,14 +1155,107 @@ oma sessions events create <session_id> \\
     );
   };
 
+  /* ── Chat pane (step 0, left column) ───────────────────────────────── */
+
+  const renderBuilderChat = () => (
+    <div className="flex h-full flex-col">
+      <div className="border-b border-surface-border pb-3">
+        <h2 className="text-base font-semibold text-text-primary">
+          What do you want to build?
+        </h2>
+        <p className="mt-0.5 text-xs text-text-secondary">
+          Describe your agent or start with a template.
+        </p>
+      </div>
+
+      {/* Message list */}
+      <div className="flex-1 overflow-y-auto py-4">
+        {builderMessages.length === 0 && !builderLoading && (
+          <div className="flex h-full flex-col items-center justify-center text-center">
+            <div className="rounded-full bg-surface-hover p-3">
+              <Sparkles className="h-5 w-5 text-accent-blue" />
+            </div>
+            <p className="mt-3 text-sm text-text-secondary">
+              Tell me what you want your agent to do
+            </p>
+            <p className="mt-1 text-xs text-text-muted">
+              e.g. "a support agent that answers from our Notion docs and
+              escalates to Slack"
+            </p>
+          </div>
+        )}
+        <div className="space-y-3">
+          {builderMessages.map((msg, i) => (
+            <div
+              key={i}
+              className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}
+            >
+              <div
+                className={`max-w-[85%] rounded-2xl px-4 py-2.5 text-sm whitespace-pre-wrap ${
+                  msg.role === "user"
+                    ? "bg-accent-blue text-white"
+                    : "bg-surface-hover text-text-primary"
+                }`}
+              >
+                {msg.content}
+              </div>
+            </div>
+          ))}
+          {builderLoading && (
+            <div className="flex justify-start">
+              <div className="flex items-center gap-2 rounded-2xl bg-surface-hover px-4 py-2.5 text-sm text-text-muted">
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                Thinking…
+              </div>
+            </div>
+          )}
+          {builderError && (
+            <div className="rounded-lg border border-red-500/30 bg-red-500/5 p-3 text-xs text-red-600">
+              {builderError}
+            </div>
+          )}
+          <div ref={chatEndRef} />
+        </div>
+      </div>
+
+      {/* Input bar — pinned to bottom of left column */}
+      <div className="border-t border-surface-border pt-3">
+        <div className="flex items-end gap-2">
+          <textarea
+            value={builderInput}
+            onChange={(e) => setBuilderInput(e.target.value)}
+            placeholder="Describe your agent..."
+            rows={2}
+            disabled={builderLoading}
+            className="flex-1 resize-none rounded-xl border border-surface-border bg-surface-secondary px-3 py-2 text-sm text-text-primary placeholder:text-text-muted focus:border-accent-blue focus:outline-none disabled:opacity-50"
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && !e.shiftKey) {
+                e.preventDefault();
+                sendBuilderMessage();
+              }
+            }}
+          />
+          <Button
+            variant="primary"
+            onClick={sendBuilderMessage}
+            disabled={!builderInput.trim() || builderLoading}
+          >
+            <Send className="h-4 w-4" />
+          </Button>
+        </div>
+        {providers.length > 0 && selectedProvider && (
+          <div className="mt-2 flex items-center gap-2 text-[10px] text-text-muted">
+            <Sparkles className="h-3 w-3" />
+            Using {selectedProvider.name} · {selectedModel || selectedProvider.default_model}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+
   /* ── Step content router ───────────────────────────────────────────── */
 
-  const renderStep = () => {
-    if (step === 0) {
-      if (createdAgent) return renderAgentCreated();
-      if (selectedTemplate) return renderTemplatePreview();
-      return renderTemplateSelection();
-    }
+  const renderStepNonZero = () => {
     if (step === 1) {
       if (createdEnv) return renderEnvironmentCreated();
       return renderConfigureEnvironment();
@@ -1094,7 +1271,7 @@ oma sessions events create <session_id> \\
   };
 
   return (
-    <div className="mx-auto max-w-5xl p-6">
+    <div className="mx-auto max-w-7xl p-6">
       {/* Top bar */}
       <div className="mb-6 flex items-center justify-between">
         <h1 className="text-sm font-medium text-text-secondary">
@@ -1120,7 +1297,18 @@ oma sessions events create <session_id> \\
         </div>
       </div>
 
-      {renderStep()}
+      {step === 0 ? (
+        <div className="grid gap-6 lg:grid-cols-[minmax(320px,420px)_1fr]">
+          {/* LEFT: persistent chat pane */}
+          <div className="rounded-2xl border border-surface-border bg-surface-card p-4 lg:h-[calc(100vh-180px)] lg:sticky lg:top-6">
+            {renderBuilderChat()}
+          </div>
+          {/* RIGHT: templates / template preview / draft preview / agent created */}
+          <div className="min-w-0">{renderStepZeroRight()}</div>
+        </div>
+      ) : (
+        <div>{renderStepNonZero()}</div>
+      )}
     </div>
   );
 }
