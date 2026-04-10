@@ -204,6 +204,10 @@ export function createVault(params: VaultCreateParams) {
   });
 }
 
+export function archiveVault(id: string) {
+  return request<void>(`/vaults/${id}`, { method: "DELETE" });
+}
+
 // ── Providers ──────────────────────────────────────────────────────────────
 
 export interface LLMProvider {

@@ -1,7 +1,7 @@
 import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
-import { Plus } from "lucide-react";
+import { Plus, X } from "lucide-react";
 import { Button } from "../components/ui/button";
 import { Badge, statusVariant } from "../components/ui/badge";
 import {
@@ -20,9 +20,40 @@ type StatusFilter = "all" | "active";
 
 export function VaultsListPage() {
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
   const [afterId, setAfterId] = useState<string | undefined>();
   const [cursorStack, setCursorStack] = useState<string[]>([]);
+
+  // ── Create dialog state ─────────────────────────────────────────
+  const [createOpen, setCreateOpen] = useState(false);
+  const [newDisplayName, setNewDisplayName] = useState("");
+  const [creating, setCreating] = useState(false);
+  const [createError, setCreateError] = useState<string | null>(null);
+
+  const resetCreateForm = () => {
+    setNewDisplayName("");
+    setCreateError(null);
+  };
+
+  const handleCreate = async () => {
+    if (!newDisplayName.trim()) return;
+    setCreating(true);
+    setCreateError(null);
+    try {
+      const vault = await api.createVault({
+        display_name: newDisplayName.trim(),
+      });
+      await queryClient.invalidateQueries({ queryKey: ["vaults"] });
+      setCreateOpen(false);
+      resetCreateForm();
+      navigate(`/vaults/${vault.id}`);
+    } catch (err: any) {
+      setCreateError(err?.message ?? "Failed to create vault");
+    } finally {
+      setCreating(false);
+    }
+  };
 
   const { data, isLoading } = useQuery({
     queryKey: ["vaults", statusFilter, afterId],
@@ -63,7 +94,7 @@ export function VaultsListPage() {
             servers and other tools.
           </p>
         </div>
-        <Button variant="primary">
+        <Button variant="primary" onClick={() => setCreateOpen(true)}>
           <Plus className="h-4 w-4" />
           New vault
         </Button>
@@ -142,6 +173,83 @@ export function VaultsListPage() {
           onPrev={handlePrevPage}
         />
       </div>
+
+      {/* Create vault dialog ─────────────────────────────────── */}
+      {createOpen && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+          onClick={(e) => {
+            if (e.target === e.currentTarget) {
+              setCreateOpen(false);
+              resetCreateForm();
+            }
+          }}
+        >
+          <div className="w-full max-w-md rounded-2xl border border-surface-border bg-surface-card p-5 shadow-xl">
+            <div className="mb-4 flex items-start justify-between">
+              <div>
+                <h3 className="text-base font-semibold text-text-primary">
+                  New vault
+                </h3>
+                <p className="mt-0.5 text-xs text-text-muted">
+                  A vault holds encrypted credentials (API keys, OAuth
+                  tokens) that your agents can read via MCP connectors.
+                </p>
+              </div>
+              <button
+                onClick={() => {
+                  setCreateOpen(false);
+                  resetCreateForm();
+                }}
+                className="cursor-pointer rounded-md p-1 text-text-muted hover:bg-surface-hover"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            <label className="block">
+              <span className="text-xs font-medium uppercase tracking-wider text-text-muted">
+                Display name
+              </span>
+              <input
+                type="text"
+                autoFocus
+                value={newDisplayName}
+                onChange={(e) => setNewDisplayName(e.target.value)}
+                placeholder="e.g. Support Stack Credentials"
+                className="mt-1 w-full rounded-md border border-surface-border bg-surface-secondary px-3 py-2 text-sm text-text-primary placeholder:text-text-muted focus:border-accent-blue focus:outline-none"
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") handleCreate();
+                }}
+              />
+            </label>
+
+            {createError && (
+              <p className="mt-3 text-xs text-red-600">{createError}</p>
+            )}
+
+            <div className="mt-5 flex items-center justify-end gap-2">
+              <Button
+                variant="ghost"
+                onClick={() => {
+                  setCreateOpen(false);
+                  resetCreateForm();
+                }}
+                disabled={creating}
+              >
+                Cancel
+              </Button>
+              <Button
+                variant="primary"
+                onClick={handleCreate}
+                disabled={creating || !newDisplayName.trim()}
+              >
+                {creating ? "Creating…" : "Create vault"}
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

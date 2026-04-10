@@ -1,5 +1,6 @@
-import { useParams, Link } from "react-router-dom";
-import { useQuery } from "@tanstack/react-query";
+import { useState } from "react";
+import { useParams, Link, useNavigate } from "react-router-dom";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowLeft, Archive, Plus, Key, Shield } from "lucide-react";
 import { Button } from "../components/ui/button";
 import { Badge, statusVariant } from "../components/ui/badge";
@@ -16,12 +17,34 @@ import * as api from "../lib/api";
 
 export function VaultDetailPage() {
   const { vaultId } = useParams<{ vaultId: string }>();
+  const navigate = useNavigate();
+  const queryClient = useQueryClient();
+  const [archiving, setArchiving] = useState(false);
 
   const { data: vault, isLoading } = useQuery({
     queryKey: ["vault", vaultId],
     queryFn: () => api.getVault(vaultId!),
     enabled: !!vaultId,
   });
+
+  const handleArchive = async () => {
+    if (!vault) return;
+    if (
+      !window.confirm(
+        `Archive vault "${vault.display_name}"? Agents referencing its credentials will lose access.`,
+      )
+    ) {
+      return;
+    }
+    setArchiving(true);
+    try {
+      await api.archiveVault(vault.id);
+      await queryClient.invalidateQueries({ queryKey: ["vaults"] });
+      navigate("/vaults");
+    } catch {
+      setArchiving(false);
+    }
+  };
 
   if (isLoading) {
     return (
@@ -60,10 +83,17 @@ export function VaultDetailPage() {
             <span className="text-xs text-text-muted font-mono">{vault.id}</span>
           </div>
         </div>
-        <Button variant="ghost" size="sm">
-          <Archive className="h-3.5 w-3.5" />
-          Archive
-        </Button>
+        {status === "active" && (
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={handleArchive}
+            disabled={archiving}
+          >
+            <Archive className="h-3.5 w-3.5" />
+            {archiving ? "Archiving…" : "Archive"}
+          </Button>
+        )}
       </div>
 
       {/* Content */}
