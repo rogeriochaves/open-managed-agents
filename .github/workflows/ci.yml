@@ -1,0 +1,96 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Test + typecheck
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.30.3
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Typecheck all packages
+        run: pnpm typecheck
+
+      - name: Run tests (server, web, cli, scenario-skipped)
+        # scenario-tests are skipped unless OMA_SCENARIO_ENABLED is set
+        # and real OPENAI/ANTHROPIC keys are present, so they're a no-op
+        # in CI and do not require any live LLM credentials.
+        run: pnpm test
+
+      - name: Build all packages
+        run: pnpm build
+
+  sqlite-smoke:
+    name: SQLite boot smoke test
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    needs: test
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.30.3
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build
+        run: pnpm build
+
+      - name: Boot server with SQLite + smoke-test the CLI against it
+        run: |
+          # Start the server in the background on a non-default port to
+          # avoid colliding with anything, then drive it with the CLI.
+          OMA_DEFAULT_ADMIN_PASSWORD=ci-test-pw \
+          PORT=3099 \
+          node packages/server/dist/index.js &
+          SERVER_PID=$!
+
+          # Wait for /v1/auth/me to respond
+          for i in $(seq 1 30); do
+            if curl -sSf -o /dev/null http://localhost:3099/v1/auth/me; then
+              echo "Server up"
+              break
+            fi
+            sleep 1
+          done
+
+          OMA_API_BASE=http://localhost:3099 ./scripts/cli-smoke-test.sh
+
+          kill $SERVER_PID || true

@@ -23,6 +23,10 @@
 </p>
 
 <p align="center">
+  <a href="https://github.com/rogeriochaves/open-managed-agents/actions/workflows/ci.yml"><img src="https://github.com/rogeriochaves/open-managed-agents/actions/workflows/ci.yml/badge.svg" alt="CI" /></a>
+</p>
+
+<p align="center">
   <img src="docs/screenshots/03-agent-created.png" alt="Building an agent in Open Managed Agents" width="100%" />
 </p>
 
