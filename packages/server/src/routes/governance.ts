@@ -139,7 +139,7 @@ const createUserRoute = createRoute({
 const listAuditLogRoute = createRoute({
   method: "get", path: "/v1/audit-log", tags, summary: "List audit log entries",
   request: { query: z.object({ limit: z.coerce.number().optional(), resource_type: z.string().optional() }) },
-  responses: { 200: { description: "Audit log", content: { "application/json": { schema: z.object({ data: z.array(z.object({ id: z.string(), user_id: z.string().nullable(), action: z.string(), resource_type: z.string(), resource_id: z.string().nullable(), details: z.string().nullable(), created_at: z.string() })) }) } } } },
+  responses: { 200: { description: "Audit log", content: { "application/json": { schema: z.object({ data: z.array(z.object({ id: z.string(), user_id: z.string().nullable(), action: z.string(), resource_type: z.string(), resource_id: z.string().nullable(), details: z.record(z.unknown()).nullable(), created_at: z.string() })) }) } } } },
 });
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
@@ -378,7 +378,23 @@ export function registerGovernanceRoutes(app: OpenAPIHono) {
       `SELECT * FROM audit_log ${where} ORDER BY created_at DESC LIMIT ?`,
       ...values, limit
     );
-    return c.json({ data: rows.map(rowClean) }, 200);
+    // Parse the details JSON blob at the boundary — matches how
+    // agents/sessions routes return their JSON columns as objects.
+    // Malformed blobs degrade to null rather than crashing the listing.
+    const data = rows.map((row) => {
+      const cleaned = rowClean(row);
+      if (cleaned?.details) {
+        try {
+          cleaned.details = JSON.parse(cleaned.details);
+        } catch {
+          cleaned.details = null;
+        }
+      } else {
+        cleaned.details = null;
+      }
+      return cleaned;
+    });
+    return c.json({ data }, 200);
   });
 }
 

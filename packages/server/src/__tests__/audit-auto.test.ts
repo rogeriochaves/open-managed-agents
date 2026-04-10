@@ -148,6 +148,33 @@ describe("Audit log auto-write", () => {
     expect(createEntry).toBeTruthy();
   });
 
+  it("returns `details` as a parsed object, not a JSON string", async () => {
+    // Trigger an audit row whose details payload is a JSON blob.
+    // The create-agent path writes {"name": "..."} into details.
+    const res = await app.request("/v1/agents", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        name: "audit-details-shape",
+        model: "claude-sonnet-4-6",
+      }),
+    });
+    const agent = (await res.json()) as { id: string };
+
+    const auditRes = await app.request("/v1/audit-log?resource_type=agent");
+    const body = (await auditRes.json()) as {
+      data: Array<{ resource_id: string; details: unknown }>;
+    };
+    const entry = body.data.find((e) => e.resource_id === agent.id);
+    expect(entry).toBeTruthy();
+    // Must be a parsed object, not a string.
+    expect(typeof entry!.details).toBe("object");
+    expect(entry!.details).not.toBeNull();
+    expect((entry!.details as Record<string, unknown>).name).toBe(
+      "audit-details-shape"
+    );
+  });
+
   it("logs a 'credential delete' entry (security-critical)", async () => {
     // Reuse the vault from the previous test; create + delete a cred
     const vaultsRes = await app.request("/v1/vaults");
