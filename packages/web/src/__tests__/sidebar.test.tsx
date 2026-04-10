@@ -14,9 +14,9 @@ function renderSidebar(collapsed = false) {
 }
 
 describe("Sidebar", () => {
-  it("renders Console branding", () => {
+  it("renders Open Agents branding", () => {
     renderSidebar();
-    expect(screen.getByText("Console")).toBeInTheDocument();
+    expect(screen.getByText("Open Agents")).toBeInTheDocument();
   });
 
   it("renders workspace selector", () => {
