@@ -79,6 +79,34 @@ if ! node "$CLI_BIN" vaults list >/dev/null 2>&1; then
 fi
 echo "✓ oma vaults list"
 
+# 6. OpenAPI spec is published and looks like 3.x with several paths.
+# The spec is minified JSON so we can't anchor to line starts; use a
+# Node one-liner to parse it and count keys under `paths`.
+OPENAPI=$(curl -sSf "$OMA_API_BASE/openapi.json")
+PATH_COUNT=$(echo "$OPENAPI" | node -e '
+let s = "";
+process.stdin.on("data", d => s += d);
+process.stdin.on("end", () => {
+  const j = JSON.parse(s);
+  if (!j.openapi || !j.openapi.startsWith("3.")) {
+    process.stderr.write("not openapi 3.x\n"); process.exit(2);
+  }
+  const paths = Object.keys(j.paths || {}).filter(p => p.startsWith("/v1/"));
+  console.log(paths.length);
+})' 2>/dev/null)
+if [ -z "$PATH_COUNT" ] || [ "$PATH_COUNT" -lt 10 ]; then
+  echo "✗ /openapi.json not valid OpenAPI 3.x with ≥10 /v1/* paths (got '$PATH_COUNT')"
+  exit 1
+fi
+echo "✓ /openapi.json (declares $PATH_COUNT /v1/* paths)"
+
+# 7. Swagger UI is reachable
+if ! curl -sSf -o /dev/null "$OMA_API_BASE/docs"; then
+  echo "✗ /docs (Swagger UI) is not reachable"
+  exit 1
+fi
+echo "✓ /docs"
+
 echo ""
 echo "All CLI smoke tests passed — the 'oma' binary successfully"
 echo "drives $OMA_API_BASE end-to-end."
