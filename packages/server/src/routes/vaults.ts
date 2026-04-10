@@ -12,6 +12,7 @@ import { getDB, newId } from "../db/index.js";
 import { encrypt, decrypt } from "../lib/encryption.js";
 import { auditLog } from "./governance.js";
 import { currentUserId } from "../lib/current-user.js";
+import { buildAfterIdClause } from "../lib/pagination.js";
 
 const tags = ["Vaults"];
 
@@ -123,10 +124,23 @@ export function registerVaultRoutes(app: OpenAPIHono) {
     const query = c.req.valid("query") as any;
     const db = await getDB();
     const conditions: string[] = [];
+    const values: unknown[] = [];
     if (!query.include_archived) conditions.push("archived_at IS NULL");
+
+    // Cursor pagination — previously ignored so page 2 returned page 1.
+    const cursor = await buildAfterIdClause(db, "vaults", query.after_id);
+    if (cursor.where) {
+      conditions.push(cursor.where);
+      values.push(...cursor.values);
+    }
+
     const where = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
     const limit = Math.min(query.limit ?? 20, 100);
-    const rows = await db.all<any>(`SELECT * FROM vaults ${where} ORDER BY created_at DESC LIMIT ?`, limit + 1);
+    const rows = await db.all<any>(
+      `SELECT * FROM vaults ${where} ORDER BY created_at DESC LIMIT ?`,
+      ...values,
+      limit + 1,
+    );
     const hasMore = rows.length > limit;
     const data = rows.slice(0, limit).map(rowToVault);
     return c.json({ data, has_more: hasMore, first_id: data[0]?.id ?? null, last_id: data[data.length - 1]?.id ?? null }, 200);

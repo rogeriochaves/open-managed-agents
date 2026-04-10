@@ -10,6 +10,7 @@ import { pageCursorResponse } from "../schemas/common.js";
 import { getDB, newId } from "../db/index.js";
 import { auditLog } from "./governance.js";
 import { currentUserId } from "../lib/current-user.js";
+import { buildAfterIdClause } from "../lib/pagination.js";
 
 const tags = ["Agents"];
 
@@ -250,9 +251,18 @@ export function registerAgentRoutes(app: OpenAPIHono) {
     const db = await getDB();
 
     const conditions: string[] = [];
+    const values: unknown[] = [];
 
     if (!query.include_archived) {
       conditions.push("archived_at IS NULL");
+    }
+
+    // Honor cursor pagination — handlers used to ignore after_id
+    // and a user with >20 agents could never page past screen 1.
+    const cursor = await buildAfterIdClause(db, "agents", query.after_id);
+    if (cursor.where) {
+      conditions.push(cursor.where);
+      values.push(...cursor.values);
     }
 
     const where = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
@@ -260,6 +270,7 @@ export function registerAgentRoutes(app: OpenAPIHono) {
 
     const rows = await db.all<any>(
       `SELECT * FROM agents ${where} ORDER BY created_at DESC LIMIT ?`,
+      ...values,
       limit + 1
     );
 

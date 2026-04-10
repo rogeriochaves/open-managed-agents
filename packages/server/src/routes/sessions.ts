@@ -12,6 +12,7 @@ import { getDB, newId } from "../db/index.js";
 import { auditLog } from "./governance.js";
 import { currentUser, currentUserId } from "../lib/current-user.js";
 import { canUseProvider, canUseConnector } from "../lib/access-control.js";
+import { buildAfterIdClause } from "../lib/pagination.js";
 
 const tags = ["Sessions"];
 
@@ -314,6 +315,13 @@ export function registerSessionRoutes(app: OpenAPIHono) {
     }
     if (!query.include_archived) {
       conditions.push("archived_at IS NULL");
+    }
+
+    // Cursor pagination — previously ignored so page 2 returned page 1.
+    const cursor = await buildAfterIdClause(db, "sessions", query.after_id);
+    if (cursor.where) {
+      conditions.push(cursor.where);
+      values.push(...cursor.values);
     }
 
     const where = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
