@@ -143,3 +143,127 @@ describe("runAgentLoop error path", () => {
     expect(types).not.toContain("session.status_idle");
   });
 });
+
+describe("runAgentLoop cooperative cancellation path", () => {
+  it("emits session.status_terminated (not session.stopped) when the user clicks Stop mid-run", async () => {
+    // Fresh session so the other test's state doesn't bleed.
+    const db = await getDB();
+    const localSessionId = newId("sesn");
+    const now = new Date().toISOString();
+    await db.run(
+      `INSERT INTO sessions (id, title, agent_id, agent_snapshot, environment_id, status, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      localSessionId,
+      "cancel-path-test",
+      "agent_stub",
+      JSON.stringify({ id: "agent_stub", name: "stub" }),
+      "env_default",
+      "idle",
+      now,
+      now,
+    );
+    await db.run(
+      `INSERT INTO events (id, session_id, type, data, processed_at) VALUES (?, ?, ?, ?, ?)`,
+      newId("evt"),
+      localSessionId,
+      "user.message",
+      JSON.stringify({ content: [{ type: "text", text: "hello" }] }),
+      now,
+    );
+
+    // This provider simulates the real-world Stop flow: runAgentLoop
+    // flips the session to "running" on entry, then enters iteration
+    // 1 and calls provider.chat(). Halfway through that chat(), the
+    // user clicks Stop — represented here by the provider flipping
+    // the row to "terminated" as a side effect before returning.
+    // The provider returns a tool_use result so the loop DOESN'T
+    // exit via the happy-path break on stop_reason "end_turn",
+    // which would skip the cancellation check. Iteration 2 runs
+    // the cooperative status check and takes the cancellation
+    // branch.
+    let chatCalls = 0;
+    const cancellingProvider: LLMProvider = {
+      type: "stub",
+      name: "cancelling-stub",
+      async chat() {
+        chatCalls++;
+        if (chatCalls === 1) {
+          // Simulate the user clicking Stop mid-run
+          await db.run(
+            "UPDATE sessions SET status = ? WHERE id = ?",
+            "terminated",
+            localSessionId,
+          );
+          // Return a tool_use so the loop keeps going to iteration 2
+          return {
+            content: [
+              {
+                type: "tool_use" as const,
+                id: "toolu_1",
+                name: "nonexistent_tool",
+                input: {},
+              },
+            ],
+            stop_reason: "tool_use" as const,
+            usage: {
+              input_tokens: 1,
+              output_tokens: 1,
+              cache_creation_input_tokens: 0,
+              cache_read_input_tokens: 0,
+            },
+            model: "stub-model",
+          };
+        }
+        throw new Error(
+          "provider.chat() called after cancellation — loop did not honor the status flip",
+        );
+      },
+      async *chatStream() {
+        throw new Error("not used");
+      },
+      async listModels() {
+        return [];
+      },
+    };
+
+    const agentConfig: AgentConfig = {
+      name: "stub",
+      system: null,
+      model: "stub-model",
+      tools: [],
+      mcp_servers: [],
+      skills: [],
+    };
+
+    const emitted: Array<{ type: string }> = [];
+    const emitter = {
+      emit(event: { type: string }) {
+        emitted.push(event);
+      },
+      close() {},
+    };
+
+    await runAgentLoop(
+      localSessionId,
+      agentConfig,
+      cancellingProvider,
+      emitter,
+      5,
+    );
+
+    const types = emitted.map((e) => e.type);
+    // Must include a proper declared status event so the UI's
+    // EVENT_BADGES map renders the red terminated badge
+    // immediately via SSE instead of waiting 5s for polling.
+    expect(types).toContain("session.status_terminated");
+    // And must NOT emit the undeclared "session.stopped" type —
+    // that's the bug this test guards against. Prior to this
+    // fix the engine used an event type that isn't in
+    // packages/types/src/events.ts, so the client's switch/case
+    // fell through to the default grey badge.
+    expect(types).not.toContain("session.stopped");
+    // Exactly one chat() call — iteration 2 takes the
+    // cancellation branch before reaching the next chat().
+    expect(chatCalls).toBe(1);
+  });
+});

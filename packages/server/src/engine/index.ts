@@ -426,11 +426,21 @@ export async function runAgentLoop(
         sessionId,
       );
       if (statusRow?.status === "terminated") {
-        const stoppedEvent = await storeEvent(sessionId, "session.stopped", {
-          reason: "user_requested",
-          iteration,
-        });
-        emitter?.emit(stoppedEvent);
+        // Emit session.status_terminated — a declared event type
+        // that the UI already maps via EVENT_BADGES. The prior
+        // implementation emitted "session.stopped" which isn't on
+        // the SessionEvent union in packages/types/src/events.ts,
+        // so the client's switch/case fell through to a default
+        // grey badge and the badge on the list view only updated
+        // when the 5s polling query refetched the session row.
+        // With a declared status event on the SSE stream, the
+        // badge flips immediately.
+        const terminatedEvent = await storeEvent(
+          sessionId,
+          "session.status_terminated",
+          {},
+        );
+        emitter?.emit(terminatedEvent);
         return;
       }
 
