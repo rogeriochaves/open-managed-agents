@@ -110,6 +110,12 @@ export function stopSession(id: string) {
   return request<Session>(`/sessions/${id}/stop`, { method: "POST" });
 }
 
+export function archiveSession(id: string) {
+  // POST /v1/sessions/:id/archive is the SOFT archive (sets archived_at).
+  // The DELETE route hard-deletes — keep them distinct on the client.
+  return request<Session>(`/sessions/${id}/archive`, { method: "POST" });
+}
+
 // ── Session Events ──────────────────────────────────────────────────────
 
 export function listSessionEvents(

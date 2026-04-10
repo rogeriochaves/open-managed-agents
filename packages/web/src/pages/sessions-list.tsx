@@ -1,7 +1,7 @@
 import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
-import { Plus } from "lucide-react";
+import { Plus, Archive } from "lucide-react";
 import { Button } from "../components/ui/button";
 import { Badge, statusVariant } from "../components/ui/badge";
 import {
@@ -37,12 +37,14 @@ function dateFilterToParam(value: string): string | undefined {
 
 export function SessionsListPage() {
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const [goToId, setGoToId] = useState("");
   const [dateFilter, setDateFilter] = useState("");
   const [agentFilter, setAgentFilter] = useState("");
   const [showArchived, setShowArchived] = useState(false);
   const [selectAll, setSelectAll] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [archiving, setArchiving] = useState(false);
   const [afterId, setAfterId] = useState<string | undefined>();
   const [cursorStack, setCursorStack] = useState<string[]>([]);
 
@@ -91,6 +93,35 @@ export function SessionsListPage() {
     });
   };
 
+  const handleBulkArchive = async () => {
+    if (selected.size === 0) return;
+    const count = selected.size;
+    if (
+      !window.confirm(
+        `Archive ${count} session${count === 1 ? "" : "s"}? Archived sessions stop appearing in the default list but their events are preserved.`,
+      )
+    ) {
+      return;
+    }
+    setArchiving(true);
+    try {
+      // Fire sequentially to keep the error mode simple: the first
+      // failure stops the batch so the user can retry the remainder.
+      // Parallel Promise.all would swallow individual failures and
+      // leave the selection in an inconsistent half-archived state.
+      for (const id of selected) {
+        await api.archiveSession(id);
+      }
+      await queryClient.invalidateQueries({ queryKey: ["sessions"] });
+      setSelected(new Set());
+      setSelectAll(false);
+    } catch (err) {
+      console.error("Bulk archive failed:", err);
+    } finally {
+      setArchiving(false);
+    }
+  };
+
   const handleNextPage = () => {
     if (data?.last_id) {
       setCursorStack((s) => [...s, afterId ?? ""]);
@@ -116,10 +147,24 @@ export function SessionsListPage() {
             Trace and debug agent sessions — every turn, tool call, and token.
           </p>
         </div>
-        <Button variant="primary" onClick={() => navigate("/quickstart")}>
-          <Plus className="h-4 w-4" />
-          New session
-        </Button>
+        <div className="flex items-center gap-2">
+          {selected.size > 0 && (
+            <Button
+              variant="secondary"
+              onClick={handleBulkArchive}
+              disabled={archiving}
+            >
+              <Archive className="h-4 w-4" />
+              {archiving
+                ? `Archiving ${selected.size}…`
+                : `Archive ${selected.size} selected`}
+            </Button>
+          )}
+          <Button variant="primary" onClick={() => navigate("/quickstart")}>
+            <Plus className="h-4 w-4" />
+            New session
+          </Button>
+        </div>
       </div>
 
       {/* Filters bar */}
