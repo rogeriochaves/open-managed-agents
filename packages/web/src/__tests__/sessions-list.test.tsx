@@ -47,7 +47,9 @@ describe("SessionsListPage", () => {
 
     expect(screen.getByText("Sessions")).toBeInTheDocument();
     expect(
-      screen.getByText("Trace and debug Claude Managed Agents sessions.")
+      screen.getByText(
+        "Trace and debug agent sessions — every turn, tool call, and token.",
+      ),
     ).toBeInTheDocument();
   });
 

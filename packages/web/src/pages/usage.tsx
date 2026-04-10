@@ -56,8 +56,11 @@ export function UsagePage() {
 
   if (isLoading || !data) {
     return (
-      <div className="mx-auto max-w-5xl p-6">
-        <h1 className="text-lg font-semibold text-text-primary mb-4">Usage</h1>
+      <div className="p-6">
+        <h1 className="text-2xl font-semibold text-text-primary mb-1">Usage</h1>
+        <p className="text-sm text-text-secondary mb-6">
+          Token usage and estimated costs across all agents and providers.
+        </p>
         <p className="text-sm text-text-muted">Loading usage data...</p>
       </div>
     );
@@ -67,8 +70,8 @@ export function UsagePage() {
   const maxProviderTokens = Math.max(...data.by_provider.map((p) => p.input_tokens + p.output_tokens), 1);
 
   return (
-    <div className="mx-auto max-w-5xl p-6">
-      <h1 className="text-lg font-semibold text-text-primary mb-1">Usage</h1>
+    <div className="p-6">
+      <h1 className="text-2xl font-semibold text-text-primary mb-1">Usage</h1>
       <p className="text-sm text-text-secondary mb-6">
         Token usage and estimated costs across all agents and providers.
       </p>

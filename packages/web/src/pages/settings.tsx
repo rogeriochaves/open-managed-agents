@@ -283,11 +283,11 @@ export function SettingsPage() {
   );
 
   return (
-    <div className="mx-auto max-w-4xl p-6">
-      <div className="flex items-center gap-2 mb-6">
-        <Settings className="h-5 w-5 text-text-muted" />
-        <h1 className="text-lg font-semibold text-text-primary">Settings</h1>
-      </div>
+    <div className="p-6">
+      <h1 className="text-2xl font-semibold text-text-primary mb-1">Settings</h1>
+      <p className="text-sm text-text-secondary mb-6">
+        Configure providers, organizations, and governance policies.
+      </p>
 
       {/* Tabs */}
       <div className="flex border-b border-surface-border mb-6">

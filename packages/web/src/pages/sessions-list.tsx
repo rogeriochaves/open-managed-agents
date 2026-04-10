@@ -113,7 +113,7 @@ export function SessionsListPage() {
             Sessions
           </h1>
           <p className="mt-1 text-sm text-text-secondary">
-            Trace and debug Claude Managed Agents sessions.
+            Trace and debug agent sessions — every turn, tool call, and token.
           </p>
         </div>
         <Button variant="primary" onClick={() => navigate("/quickstart")}>
