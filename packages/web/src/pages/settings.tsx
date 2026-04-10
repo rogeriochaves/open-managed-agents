@@ -9,6 +9,7 @@ import {
   Key,
   Server,
   Building2,
+  X,
 } from "lucide-react";
 import { Button } from "../components/ui/button";
 import { Badge } from "../components/ui/badge";
@@ -139,6 +140,89 @@ export function SettingsPage() {
     return "allowed";
   };
 
+  // ── Organization tab — Add team state ─────────────────────────
+  const [teamOpen, setTeamOpen] = useState(false);
+  const [teamName, setTeamName] = useState("");
+  const [teamSlug, setTeamSlug] = useState("");
+  const [teamDescription, setTeamDescription] = useState("");
+  const [teamError, setTeamError] = useState<string | null>(null);
+
+  const addTeamMut = useMutation({
+    mutationFn: async (params: {
+      orgId: string;
+      name: string;
+      slug: string;
+      description: string;
+    }) => {
+      const res = await fetch(`/v1/organizations/${params.orgId}/teams`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
+          name: params.name,
+          slug: params.slug,
+          ...(params.description ? { description: params.description } : {}),
+        }),
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}: ${await res.text()}`);
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["teams"] });
+      setTeamOpen(false);
+      setTeamName("");
+      setTeamSlug("");
+      setTeamDescription("");
+      setTeamError(null);
+    },
+    onError: (err: any) => setTeamError(err?.message ?? "Failed to add team"),
+  });
+
+  // ── Organization tab — Add user state ─────────────────────────
+  const [userOpen, setUserOpen] = useState(false);
+  const [userEmail, setUserEmail] = useState("");
+  const [userName, setUserName] = useState("");
+  const [userRole, setUserRole] = useState<"admin" | "member" | "viewer">(
+    "member",
+  );
+  const [userError, setUserError] = useState<string | null>(null);
+
+  const addUserMut = useMutation({
+    mutationFn: async (params: {
+      email: string;
+      name: string;
+      role: "admin" | "member" | "viewer";
+      organization_id: string;
+    }) => {
+      const res = await fetch(`/v1/users`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify(params),
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}: ${await res.text()}`);
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["users"] });
+      setUserOpen(false);
+      setUserEmail("");
+      setUserName("");
+      setUserRole("member");
+      setUserError(null);
+    },
+    onError: (err: any) => setUserError(err?.message ?? "Failed to add user"),
+  });
+
+  // Auto-derive slug from name when the user hasn't touched it
+  const [teamSlugTouched, setTeamSlugTouched] = useState(false);
+  const handleTeamNameChange = (v: string) => {
+    setTeamName(v);
+    if (!teamSlugTouched) {
+      setTeamSlug(v.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, ""));
+    }
+  };
+
   // ── Renders ────────────────────────────────────────────────────────
 
   const renderProviders = () => (
@@ -229,8 +313,21 @@ export function SettingsPage() {
             <Badge variant="default">{org.slug}</Badge>
           </div>
 
-          <h3 className="text-xs font-medium text-text-muted uppercase tracking-wider mt-4 mb-2">Teams</h3>
-          <div className="space-y-2">
+          <div className="mt-4 flex items-center justify-between">
+            <h3 className="text-xs font-medium text-text-muted uppercase tracking-wider">Teams</h3>
+            <Button
+              size="sm"
+              variant="secondary"
+              onClick={() => {
+                setTeamOpen(true);
+                setTeamError(null);
+              }}
+            >
+              <Plus className="h-3 w-3" />
+              Add team
+            </Button>
+          </div>
+          <div className="mt-2 space-y-2">
             {teams.map((team: any) => (
               <div key={team.id} className="flex items-center gap-3 rounded-md border border-surface-border bg-surface-secondary px-3 py-2">
                 <Users className="h-4 w-4 text-text-muted" />
@@ -238,10 +335,26 @@ export function SettingsPage() {
                 <Badge variant="default">{team.slug}</Badge>
               </div>
             ))}
+            {teams.length === 0 && (
+              <p className="text-xs text-text-muted py-2">No teams yet.</p>
+            )}
           </div>
 
-          <h3 className="text-xs font-medium text-text-muted uppercase tracking-wider mt-4 mb-2">Users</h3>
-          <div className="space-y-2">
+          <div className="mt-4 flex items-center justify-between">
+            <h3 className="text-xs font-medium text-text-muted uppercase tracking-wider">Users</h3>
+            <Button
+              size="sm"
+              variant="secondary"
+              onClick={() => {
+                setUserOpen(true);
+                setUserError(null);
+              }}
+            >
+              <Plus className="h-3 w-3" />
+              Add user
+            </Button>
+          </div>
+          <div className="mt-2 space-y-2">
             {users.map((user: any) => (
               <div key={user.id} className="flex items-center gap-3 rounded-md border border-surface-border bg-surface-secondary px-3 py-2">
                 <div className="h-6 w-6 rounded-full bg-accent-blue/20 flex items-center justify-center text-xs text-accent-blue font-medium">
@@ -254,6 +367,9 @@ export function SettingsPage() {
                 <Badge variant={user.role === "admin" ? "active" : "default"}>{user.role}</Badge>
               </div>
             ))}
+            {users.length === 0 && (
+              <p className="text-xs text-text-muted py-2">No users yet.</p>
+            )}
           </div>
         </div>
       ))}
@@ -468,6 +584,212 @@ export function SettingsPage() {
       {tab === "providers" && renderProviders()}
       {tab === "organization" && renderOrganization()}
       {tab === "governance" && renderGovernance()}
+
+      {/* Add team dialog ─────────────────────────────────────────── */}
+      {teamOpen && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+          onClick={(e) => {
+            if (e.target === e.currentTarget) setTeamOpen(false);
+          }}
+        >
+          <div className="w-full max-w-md rounded-2xl border border-surface-border bg-surface-card p-5 shadow-xl">
+            <div className="mb-4 flex items-start justify-between">
+              <div>
+                <h3 className="text-base font-semibold text-text-primary">
+                  Add team
+                </h3>
+                <p className="mt-0.5 text-xs text-text-muted">
+                  A team groups members + gets its own provider access and MCP policies.
+                </p>
+              </div>
+              <button
+                onClick={() => setTeamOpen(false)}
+                className="cursor-pointer rounded-md p-1 text-text-muted hover:bg-surface-hover"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            <label className="block">
+              <span className="text-xs font-medium uppercase tracking-wider text-text-muted">
+                Name
+              </span>
+              <input
+                type="text"
+                autoFocus
+                value={teamName}
+                onChange={(e) => handleTeamNameChange(e.target.value)}
+                placeholder="e.g. Platform"
+                className="mt-1 w-full rounded-md border border-surface-border bg-surface-secondary px-3 py-2 text-sm text-text-primary placeholder:text-text-muted focus:border-accent-blue focus:outline-none"
+              />
+            </label>
+
+            <label className="mt-3 block">
+              <span className="text-xs font-medium uppercase tracking-wider text-text-muted">
+                Slug
+              </span>
+              <input
+                type="text"
+                value={teamSlug}
+                onChange={(e) => {
+                  setTeamSlug(e.target.value);
+                  setTeamSlugTouched(true);
+                }}
+                placeholder="platform"
+                className="mt-1 w-full rounded-md border border-surface-border bg-surface-secondary px-3 py-2 text-sm text-text-primary placeholder:text-text-muted font-mono focus:border-accent-blue focus:outline-none"
+              />
+            </label>
+
+            <label className="mt-3 block">
+              <span className="text-xs font-medium uppercase tracking-wider text-text-muted">
+                Description
+              </span>
+              <input
+                type="text"
+                value={teamDescription}
+                onChange={(e) => setTeamDescription(e.target.value)}
+                placeholder="Optional"
+                className="mt-1 w-full rounded-md border border-surface-border bg-surface-secondary px-3 py-2 text-sm text-text-primary placeholder:text-text-muted focus:border-accent-blue focus:outline-none"
+              />
+            </label>
+
+            {teamError && <p className="mt-3 text-xs text-red-600">{teamError}</p>}
+
+            <div className="mt-5 flex items-center justify-end gap-2">
+              <Button
+                variant="ghost"
+                onClick={() => setTeamOpen(false)}
+                disabled={addTeamMut.isPending}
+              >
+                Cancel
+              </Button>
+              <Button
+                variant="primary"
+                onClick={() => {
+                  if (!firstOrgId || !teamName.trim() || !teamSlug.trim()) return;
+                  addTeamMut.mutate({
+                    orgId: firstOrgId,
+                    name: teamName.trim(),
+                    slug: teamSlug.trim(),
+                    description: teamDescription.trim(),
+                  });
+                }}
+                disabled={
+                  addTeamMut.isPending || !teamName.trim() || !teamSlug.trim()
+                }
+              >
+                {addTeamMut.isPending ? "Adding…" : "Add team"}
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Add user dialog ─────────────────────────────────────────── */}
+      {userOpen && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+          onClick={(e) => {
+            if (e.target === e.currentTarget) setUserOpen(false);
+          }}
+        >
+          <div className="w-full max-w-md rounded-2xl border border-surface-border bg-surface-card p-5 shadow-xl">
+            <div className="mb-4 flex items-start justify-between">
+              <div>
+                <h3 className="text-base font-semibold text-text-primary">
+                  Add user
+                </h3>
+                <p className="mt-0.5 text-xs text-text-muted">
+                  The user is added to the organization without a password.
+                  Share{" "}
+                  <code className="font-mono">POST /v1/auth/change-password</code>{" "}
+                  with them to set one.
+                </p>
+              </div>
+              <button
+                onClick={() => setUserOpen(false)}
+                className="cursor-pointer rounded-md p-1 text-text-muted hover:bg-surface-hover"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            <label className="block">
+              <span className="text-xs font-medium uppercase tracking-wider text-text-muted">
+                Email
+              </span>
+              <input
+                type="email"
+                autoFocus
+                value={userEmail}
+                onChange={(e) => setUserEmail(e.target.value)}
+                placeholder="alice@example.com"
+                className="mt-1 w-full rounded-md border border-surface-border bg-surface-secondary px-3 py-2 text-sm text-text-primary placeholder:text-text-muted focus:border-accent-blue focus:outline-none"
+              />
+            </label>
+
+            <label className="mt-3 block">
+              <span className="text-xs font-medium uppercase tracking-wider text-text-muted">
+                Name
+              </span>
+              <input
+                type="text"
+                value={userName}
+                onChange={(e) => setUserName(e.target.value)}
+                placeholder="Alice Example"
+                className="mt-1 w-full rounded-md border border-surface-border bg-surface-secondary px-3 py-2 text-sm text-text-primary placeholder:text-text-muted focus:border-accent-blue focus:outline-none"
+              />
+            </label>
+
+            <label className="mt-3 block">
+              <span className="text-xs font-medium uppercase tracking-wider text-text-muted">
+                Role
+              </span>
+              <select
+                value={userRole}
+                onChange={(e) =>
+                  setUserRole(e.target.value as "admin" | "member" | "viewer")
+                }
+                className="mt-1 w-full rounded-md border border-surface-border bg-surface-secondary px-3 py-2 text-sm text-text-primary focus:border-accent-blue focus:outline-none cursor-pointer"
+              >
+                <option value="viewer">Viewer — read only</option>
+                <option value="member">Member — can create agents</option>
+                <option value="admin">Admin — full control</option>
+              </select>
+            </label>
+
+            {userError && <p className="mt-3 text-xs text-red-600">{userError}</p>}
+
+            <div className="mt-5 flex items-center justify-end gap-2">
+              <Button
+                variant="ghost"
+                onClick={() => setUserOpen(false)}
+                disabled={addUserMut.isPending}
+              >
+                Cancel
+              </Button>
+              <Button
+                variant="primary"
+                onClick={() => {
+                  if (!firstOrgId || !userEmail.trim() || !userName.trim()) return;
+                  addUserMut.mutate({
+                    email: userEmail.trim(),
+                    name: userName.trim(),
+                    role: userRole,
+                    organization_id: firstOrgId,
+                  });
+                }}
+                disabled={
+                  addUserMut.isPending || !userEmail.trim() || !userName.trim()
+                }
+              >
+                {addUserMut.isPending ? "Adding…" : "Add user"}
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
