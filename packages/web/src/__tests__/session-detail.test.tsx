@@ -120,25 +120,24 @@ describe("SessionDetailPage", () => {
       archived_at: null,
     });
 
-    vi.mocked(api.listSessionEvents).mockResolvedValue({
-      data: [
-        {
+    // Mock the SSE stream to immediately deliver the events via the callback.
+    vi.mocked(api.streamSessionEvents).mockImplementation(
+      (_id, onEvent) => {
+        onEvent({
           id: "evt_1",
           type: "user.message",
           content: [{ type: "text", text: "Hello agent" }],
           processed_at: "2026-04-01T00:00:01Z",
-        },
-        {
+        } as any);
+        onEvent({
           id: "evt_2",
           type: "agent.message",
           content: [{ type: "text", text: "Hello there!" }],
           processed_at: "2026-04-01T00:00:05Z",
-        },
-      ] as any,
-      has_more: false,
-      first_id: "evt_1",
-      last_id: "evt_2",
-    });
+        } as any);
+        return { close: vi.fn() };
+      }
+    );
 
     renderPage();
 

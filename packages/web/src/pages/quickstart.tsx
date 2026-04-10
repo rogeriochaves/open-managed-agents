@@ -286,38 +286,51 @@ function toYaml(obj: Record<string, unknown>, indent = 0): string {
   return out;
 }
 
+function getApiBase(): string {
+  if (typeof window === "undefined") return "http://localhost:3001";
+  // Use the current origin — the web app proxies /v1 to the API server,
+  // so a copy-pasted snippet from the browser will hit the right place.
+  return window.location.origin;
+}
+
 function generateCurl(
   method: string,
   path: string,
   body: Record<string, unknown>,
 ): Record<string, string> {
   const json = JSON.stringify(body, null, 2);
+  const base = getApiBase();
+  const pyKwargs = Object.entries(body)
+    .map(([k, v]) => `    "${k}": ${JSON.stringify(v)},`)
+    .join("\n");
+  const cliArgs = Object.entries(body)
+    .map(([k, v]) => `  --${k.replace(/_/g, "-")} '${JSON.stringify(v)}'`)
+    .join(" \\\n");
+
   return {
-    curl: `curl -X ${method} https://api.anthropic.com${path} \\
-  -H "x-api-key: $ANTHROPIC_API_KEY" \\
-  -H "content-type: application/json" \\
-  -H "anthropic-version: 2025-01-01" \\
+    curl: `curl -X ${method} ${base}${path} \\
+  -H "Content-Type: application/json" \\
+  -b "oma_session=$OMA_SESSION" \\
   -d '${json}'`,
-    Python: `import anthropic
+    Python: `import httpx
 
-client = anthropic.Anthropic()
-
-result = client.agents.create(
-${Object.entries(body)
-  .map(([k, v]) => `    ${k}=${JSON.stringify(v)},`)
-  .join("\n")}
+res = httpx.${method.toLowerCase()}(
+    "${base}${path}",
+    json={
+${pyKwargs}
+    },
+    cookies={"oma_session": "..."},
 )
-print(result)`,
-    TypeScript: `import Anthropic from "@anthropic-ai/sdk";
-
-const client = new Anthropic();
-
-const result = await client.agents.create(${json});
-console.log(result);`,
-    CLI: `anthropic agents create \\
-${Object.entries(body)
-  .map(([k, v]) => `  --${k.replace(/_/g, "-")} '${JSON.stringify(v)}'`)
-  .join(" \\\n")}`,
+print(res.json())`,
+    TypeScript: `const res = await fetch("${base}${path}", {
+  method: "${method}",
+  headers: { "Content-Type": "application/json" },
+  credentials: "include",
+  body: JSON.stringify(${json}),
+});
+console.log(await res.json());`,
+    CLI: `oma ${path.includes("agents") ? "agents create" : path.split("/").slice(-1)[0]} \\
+${cliArgs}`,
   };
 }
 
@@ -967,59 +980,76 @@ export function QuickstartPage() {
   const renderIntegrate = () => {
     const agentId = createdAgent?.id ?? "agent_xxx";
     const envId = createdEnv?.id ?? "env_xxx";
+    const base = getApiBase();
 
     const integrationCode = {
       curl: `# Create a session and send a message
-curl -X POST https://api.anthropic.com/v1/sessions \\
-  -H "x-api-key: $ANTHROPIC_API_KEY" \\
-  -H "content-type: application/json" \\
-  -H "anthropic-version: 2025-01-01" \\
+curl -X POST ${base}/v1/sessions \\
+  -H "Content-Type: application/json" \\
+  -b "oma_session=$OMA_SESSION" \\
   -d '{
-  "agent": "${agentId}",
-  "environment_id": "${envId}"
-}'`,
-      Python: `import anthropic
+    "agent": "${agentId}",
+    "environment_id": "${envId}"
+  }'
 
-client = anthropic.Anthropic()
+# Then send a message to the session (use the returned session id)
+curl -X POST ${base}/v1/sessions/<session_id>/events \\
+  -H "Content-Type: application/json" \\
+  -b "oma_session=$OMA_SESSION" \\
+  -d '{"events":[{"type":"user.message","content":[{"type":"text","text":"Hello!"}]}]}'`,
+      Python: `import httpx
+
+OMA = "${base}"
+cookies = {"oma_session": "..."}  # obtain via POST /v1/auth/login
 
 # Create a session
-session = client.sessions.create(
-    agent="${agentId}",
-    environment_id="${envId}",
-)
+session = httpx.post(
+    f"{OMA}/v1/sessions",
+    json={"agent": "${agentId}", "environment_id": "${envId}"},
+    cookies=cookies,
+).json()
 
 # Send a message
-client.sessions.events.create(
-    session_id=session.id,
-    events=[{
+httpx.post(
+    f"{OMA}/v1/sessions/{session['id']}/events",
+    json={"events": [{
         "type": "user.message",
         "content": [{"type": "text", "text": "Hello!"}],
-    }],
+    }]},
+    cookies=cookies,
 )`,
-      TypeScript: `import Anthropic from "@anthropic-ai/sdk";
+      TypeScript: `const OMA = "${base}";
 
-const client = new Anthropic();
-
-// Create a session
-const session = await client.sessions.create({
-  agent: "${agentId}",
-  environment_id: "${envId}",
-});
+// Create a session (browsers: use credentials: "include" to send the cookie)
+const session = await fetch(\`\${OMA}/v1/sessions\`, {
+  method: "POST",
+  headers: { "Content-Type": "application/json" },
+  credentials: "include",
+  body: JSON.stringify({
+    agent: "${agentId}",
+    environment_id: "${envId}",
+  }),
+}).then(r => r.json());
 
 // Send a message
-await client.sessions.events.create(session.id, {
-  events: [{
-    type: "user.message",
-    content: [{ type: "text", text: "Hello!" }],
-  }],
+await fetch(\`\${OMA}/v1/sessions/\${session.id}/events\`, {
+  method: "POST",
+  headers: { "Content-Type": "application/json" },
+  credentials: "include",
+  body: JSON.stringify({
+    events: [{
+      type: "user.message",
+      content: [{ type: "text", text: "Hello!" }],
+    }],
+  }),
 });`,
       CLI: `# Create a session
-anthropic sessions create \\
+oma sessions create \\
   --agent "${agentId}" \\
   --environment-id "${envId}"
 
 # Send a message
-anthropic sessions events create <session_id> \\
+oma sessions events create <session_id> \\
   --events '[{"type":"user.message","content":[{"type":"text","text":"Hello!"}]}]'`,
     };
 

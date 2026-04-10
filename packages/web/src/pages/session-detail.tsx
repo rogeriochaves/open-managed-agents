@@ -12,6 +12,35 @@ import {
   Download,
   X,
 } from "lucide-react";
+import ReactMarkdown from "react-markdown";
+import type { Components } from "react-markdown";
+import remarkGfm from "remark-gfm";
+
+const markdownComponents: Components = {
+  h1: ({ node, ...p }) => <h1 className="text-base font-semibold text-text-primary mt-2 mb-1" {...p} />,
+  h2: ({ node, ...p }) => <h2 className="text-sm font-semibold text-text-primary mt-2 mb-1" {...p} />,
+  h3: ({ node, ...p }) => <h3 className="text-sm font-semibold text-text-primary mt-2 mb-0.5" {...p} />,
+  p: ({ node, ...p }) => <p className="text-sm text-text-primary my-1 whitespace-pre-wrap break-words" {...p} />,
+  strong: ({ node, ...p }) => <strong className="font-semibold text-text-primary" {...p} />,
+  em: ({ node, ...p }) => <em className="italic" {...p} />,
+  ul: ({ node, ...p }) => <ul className="list-disc pl-5 my-1 text-sm text-text-primary space-y-0.5" {...p} />,
+  ol: ({ node, ...p }) => <ol className="list-decimal pl-5 my-1 text-sm text-text-primary space-y-0.5" {...p} />,
+  li: ({ node, ...p }) => <li className="text-sm text-text-primary" {...p} />,
+  a: ({ node, ...p }) => <a className="text-accent-blue hover:underline" target="_blank" rel="noreferrer" {...p} />,
+  code: ({ node, className, children, ...p }) => {
+    const isInline = !className;
+    if (isInline) {
+      return <code className="rounded bg-surface-secondary px-1 py-0.5 text-xs text-accent-blue font-mono" {...p}>{children}</code>;
+    }
+    return <code className={className} {...p}>{children}</code>;
+  },
+  pre: ({ node, ...p }) => <pre className="rounded-md bg-surface-secondary border border-surface-border p-3 text-xs text-text-primary overflow-x-auto my-2" {...p} />,
+  blockquote: ({ node, ...p }) => <blockquote className="border-l-2 border-surface-border pl-3 text-text-secondary my-1" {...p} />,
+  hr: () => <hr className="my-2 border-surface-border" />,
+  table: ({ node, ...p }) => <table className="my-2 border-collapse text-xs" {...p} />,
+  th: ({ node, ...p }) => <th className="border border-surface-border px-2 py-1 text-left text-text-secondary font-medium" {...p} />,
+  td: ({ node, ...p }) => <td className="border border-surface-border px-2 py-1 text-text-primary" {...p} />,
+};
 import { Button } from "../components/ui/button";
 import { Badge, statusVariant } from "../components/ui/badge";
 import * as api from "../lib/api";
@@ -110,42 +139,25 @@ export function SessionDetailPage() {
     refetchInterval: 5000,
   });
 
-  // Load initial events
-  const { data: initialEvents } = useQuery({
-    queryKey: ["session-events", sessionId],
-    queryFn: () => api.listSessionEvents(sessionId!, { order: "asc", limit: 100 }),
-    enabled: !!sessionId,
-  });
-
+  // Single source of truth for events: the SSE stream.
+  // The server replays existing events on connect, then pushes new ones live.
+  // We intentionally do NOT also run a useQuery for initial events — that
+  // caused a race where a stale snapshot clobbered live-streamed updates.
   useEffect(() => {
-    if (initialEvents?.data) {
-      setEvents(initialEvents.data);
-    }
-  }, [initialEvents]);
-
-  // SSE streaming when session is running
-  useEffect(() => {
-    if (!sessionId || session?.status === "terminated") return;
-
+    if (!sessionId) return;
+    // Reset events on session change so we don't bleed data across sessions.
+    setEvents([]);
     setIsStreaming(true);
     const seenIds = new Set<string>();
     const stream = api.streamSessionEvents(
       sessionId,
       (event) => {
-        setEvents((prev) => {
-          // Track all known IDs
-          if (seenIds.size === 0) {
-            for (const e of prev) {
-              if ((e as any).id) seenIds.add((e as any).id);
-            }
-          }
-          const eventId = (event as any).id;
-          if (eventId && seenIds.has(eventId)) {
-            return prev;
-          }
-          if (eventId) seenIds.add(eventId);
-          return [...prev, event];
-        });
+        const eventId = (event as any).id;
+        if (eventId) {
+          if (seenIds.has(eventId)) return;
+          seenIds.add(eventId);
+        }
+        setEvents((prev) => [...prev, event]);
       },
       () => {
         setIsStreaming(false);
@@ -156,7 +168,7 @@ export function SessionDetailPage() {
       stream.close();
       setIsStreaming(false);
     };
-  }, [sessionId, session?.status]);
+  }, [sessionId]);
 
   // Auto-scroll to bottom when new events arrive
   useEffect(() => {
@@ -350,9 +362,17 @@ export function SessionDetailPage() {
                     {badge.label}
                   </Badge>
                   <div className="flex-1 min-w-0">
-                    <p className="text-sm text-text-primary whitespace-pre-wrap break-words">
-                      {content}
-                    </p>
+                    {event.type === "agent.message" ? (
+                      <div className="text-sm text-text-primary">
+                        <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
+                          {content}
+                        </ReactMarkdown>
+                      </div>
+                    ) : (
+                      <p className="text-sm text-text-primary whitespace-pre-wrap break-words">
+                        {content}
+                      </p>
+                    )}
                   </div>
                   <div className="flex items-center gap-3 shrink-0 text-xs text-text-muted">
                     {tokens && <span>{tokens}</span>}
