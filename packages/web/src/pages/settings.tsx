@@ -46,20 +46,31 @@ export function SettingsPage() {
   });
 
   // ── Org state ──────────────────────────────────────────────────────
-  const { data: orgsData } = useQuery({ queryKey: ["orgs"], queryFn: () => fetch("/v1/organizations").then(r => r.json()) });
-  const orgs = (orgsData as any)?.data ?? [];
+  // NB: every query goes through api.* so a 401 actually throws (with
+  // .status=401) and the global QueryCache.onError hook bounces the
+  // user to /login. Direct `fetch(...).then(r => r.json())` silently
+  // swallows 401s — the error body lands as data and the page shows
+  // empty org/user/team lists with no indication anything is wrong.
+  const { data: orgsData } = useQuery({
+    queryKey: ["orgs"],
+    queryFn: api.listOrganizations,
+  });
+  const orgs = orgsData?.data ?? [];
 
-  const { data: usersData } = useQuery({ queryKey: ["users"], queryFn: () => fetch("/v1/users").then(r => r.json()) });
-  const users = (usersData as any)?.data ?? [];
+  const { data: usersData } = useQuery({
+    queryKey: ["users"],
+    queryFn: api.listUsers,
+  });
+  const users = usersData?.data ?? [];
 
   // Get teams for first org
   const firstOrgId = orgs[0]?.id;
   const { data: teamsData } = useQuery({
     queryKey: ["teams", firstOrgId],
-    queryFn: () => fetch(`/v1/organizations/${firstOrgId}/teams`).then(r => r.json()),
+    queryFn: () => api.listTeams(firstOrgId!),
     enabled: !!firstOrgId,
   });
-  const teams = (teamsData as any)?.data ?? [];
+  const teams = teamsData?.data ?? [];
 
   // ── Governance state ───────────────────────────────────────────────
   const [selectedTeamId, setSelectedTeamId] = useState<string | null>(null);
@@ -67,17 +78,17 @@ export function SettingsPage() {
 
   const { data: accessData } = useQuery({
     queryKey: ["provider-access", activeTeamId],
-    queryFn: () => fetch(`/v1/teams/${activeTeamId}/provider-access`).then(r => r.json()),
+    queryFn: () => api.listTeamProviderAccess(activeTeamId!),
     enabled: !!activeTeamId,
   });
-  const providerAccess = (accessData as any)?.data ?? [];
+  const providerAccess = accessData?.data ?? [];
 
   const { data: policiesData } = useQuery({
     queryKey: ["mcp-policies", activeTeamId],
-    queryFn: () => fetch(`/v1/teams/${activeTeamId}/mcp-policies`).then(r => r.json()),
+    queryFn: () => api.listTeamMcpPolicies(activeTeamId!),
     enabled: !!activeTeamId,
   });
-  const mcpPolicies = (policiesData as any)?.data ?? [];
+  const mcpPolicies = policiesData?.data ?? [];
 
   const { data: connectorsData } = useQuery({
     queryKey: ["connectors"],
@@ -87,47 +98,31 @@ export function SettingsPage() {
 
   // ── Governance mutations ──────────────────────────────────────────
   const setProviderAccessMut = useMutation({
-    mutationFn: async (params: {
+    mutationFn: (params: {
       providerId: string;
       enabled: boolean;
       rate_limit_rpm?: number | null;
       monthly_budget_usd?: number | null;
-    }) => {
-      const res = await fetch(`/v1/teams/${activeTeamId}/provider-access`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify({
-          provider_id: params.providerId,
-          enabled: params.enabled,
-          rate_limit_rpm: params.rate_limit_rpm ?? null,
-          monthly_budget_usd: params.monthly_budget_usd ?? null,
-        }),
-      });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      return res.json();
-    },
+    }) =>
+      api.setTeamProviderAccess(activeTeamId!, {
+        provider_id: params.providerId,
+        enabled: params.enabled,
+        rate_limit_rpm: params.rate_limit_rpm ?? null,
+        monthly_budget_usd: params.monthly_budget_usd ?? null,
+      }),
     onSuccess: () =>
       queryClient.invalidateQueries({ queryKey: ["provider-access", activeTeamId] }),
   });
 
   const setMcpPolicyMut = useMutation({
-    mutationFn: async (params: {
+    mutationFn: (params: {
       connectorId: string;
       policy: "allowed" | "blocked" | "requires_approval";
-    }) => {
-      const res = await fetch(`/v1/teams/${activeTeamId}/mcp-policies`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify({
-          connector_id: params.connectorId,
-          policy: params.policy,
-        }),
-      });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      return res.json();
-    },
+    }) =>
+      api.setTeamMcpPolicy(activeTeamId!, {
+        connector_id: params.connectorId,
+        policy: params.policy,
+      }),
     onSuccess: () =>
       queryClient.invalidateQueries({ queryKey: ["mcp-policies", activeTeamId] }),
   });
@@ -148,25 +143,17 @@ export function SettingsPage() {
   const [teamError, setTeamError] = useState<string | null>(null);
 
   const addTeamMut = useMutation({
-    mutationFn: async (params: {
+    mutationFn: (params: {
       orgId: string;
       name: string;
       slug: string;
       description: string;
-    }) => {
-      const res = await fetch(`/v1/organizations/${params.orgId}/teams`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify({
-          name: params.name,
-          slug: params.slug,
-          ...(params.description ? { description: params.description } : {}),
-        }),
-      });
-      if (!res.ok) throw new Error(`HTTP ${res.status}: ${await res.text()}`);
-      return res.json();
-    },
+    }) =>
+      api.createTeam(params.orgId, {
+        name: params.name,
+        slug: params.slug,
+        ...(params.description ? { description: params.description } : {}),
+      }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["teams"] });
       setTeamOpen(false);
@@ -189,22 +176,13 @@ export function SettingsPage() {
   const [userError, setUserError] = useState<string | null>(null);
 
   const addUserMut = useMutation({
-    mutationFn: async (params: {
+    mutationFn: (params: {
       email: string;
       name: string;
       role: "admin" | "member" | "viewer";
       organization_id: string;
       password?: string;
-    }) => {
-      const res = await fetch(`/v1/users`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify(params),
-      });
-      if (!res.ok) throw new Error(`HTTP ${res.status}: ${await res.text()}`);
-      return res.json();
-    },
+    }) => api.createUser(params),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["users"] });
       setUserOpen(false);
@@ -413,7 +391,7 @@ export function SettingsPage() {
                 const access = providerAccess.find(
                   (a: any) => a.provider_id === p.id,
                 );
-                const enabled = access?.enabled === true || access?.enabled === 1;
+                const enabled = access?.enabled === true;
                 return (
                   <div
                     key={p.id}

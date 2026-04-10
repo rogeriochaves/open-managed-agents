@@ -367,3 +367,152 @@ export function disconnectMCPConnector(id: string) {
     method: "DELETE",
   });
 }
+
+// ── Governance (orgs / teams / users / policies) ───────────────────────
+// Previously Settings hit these endpoints with raw `fetch(...).then(r =>
+// r.json())`, which silently swallowed 401s — the error body landed as
+// "data" and the page showed empty lists. Route everything through the
+// error-throwing request() helper so the QueryCache 401 hook fires.
+
+export interface Organization {
+  id: string;
+  name: string;
+  slug: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface Team {
+  id: string;
+  organization_id: string;
+  name: string;
+  slug: string;
+  description: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface User {
+  id: string;
+  email: string;
+  name: string;
+  role: string;
+  organization_id: string | null;
+  created_at: string;
+}
+
+export function listOrganizations() {
+  return request<{ data: Organization[] }>("/organizations");
+}
+
+export function listUsers() {
+  return request<{ data: User[] }>("/users");
+}
+
+export function listTeams(orgId: string) {
+  return request<{ data: Team[] }>(`/organizations/${orgId}/teams`);
+}
+
+export function createTeam(
+  orgId: string,
+  params: { name: string; slug: string; description?: string },
+) {
+  return request<Team>(`/organizations/${orgId}/teams`, {
+    method: "POST",
+    body: JSON.stringify(params),
+  });
+}
+
+export function createUser(params: {
+  email: string;
+  name: string;
+  role: "admin" | "member" | "viewer";
+  organization_id: string;
+  password?: string;
+}) {
+  return request<User>("/users", {
+    method: "POST",
+    body: JSON.stringify(params),
+  });
+}
+
+export interface TeamProviderAccess {
+  team_id: string;
+  provider_id: string;
+  enabled: boolean;
+  rate_limit_rpm: number | null;
+  monthly_budget_usd: number | null;
+}
+
+export function listTeamProviderAccess(teamId: string) {
+  return request<{ data: TeamProviderAccess[] }>(
+    `/teams/${teamId}/provider-access`,
+  );
+}
+
+export function setTeamProviderAccess(
+  teamId: string,
+  params: {
+    provider_id: string;
+    enabled: boolean;
+    rate_limit_rpm?: number | null;
+    monthly_budget_usd?: number | null;
+  },
+) {
+  return request<TeamProviderAccess>(`/teams/${teamId}/provider-access`, {
+    method: "POST",
+    body: JSON.stringify(params),
+  });
+}
+
+export type McpPolicyKind = "allowed" | "blocked" | "requires_approval";
+
+export interface TeamMcpPolicy {
+  team_id: string;
+  connector_id: string;
+  policy: McpPolicyKind;
+}
+
+export function listTeamMcpPolicies(teamId: string) {
+  return request<{ data: TeamMcpPolicy[] }>(`/teams/${teamId}/mcp-policies`);
+}
+
+export function setTeamMcpPolicy(
+  teamId: string,
+  params: { connector_id: string; policy: McpPolicyKind },
+) {
+  return request<TeamMcpPolicy>(`/teams/${teamId}/mcp-policies`, {
+    method: "POST",
+    body: JSON.stringify(params),
+  });
+}
+
+// ── Usage summary ─────────────────────────────────────────────────────
+export interface UsageSummary {
+  total_sessions: number;
+  total_events: number;
+  total_input_tokens: number;
+  total_output_tokens: number;
+  estimated_cost_usd: number;
+  by_agent: Array<{
+    agent_id: string;
+    agent_name: string;
+    session_count: number;
+    input_tokens: number;
+    output_tokens: number;
+    estimated_cost_usd: number;
+  }>;
+  by_provider: Array<{
+    provider_id: string;
+    provider_name: string;
+    provider_type: string;
+    session_count: number;
+    input_tokens: number;
+    output_tokens: number;
+    estimated_cost_usd: number;
+  }>;
+}
+
+export function getUsageSummary() {
+  return request<UsageSummary>("/usage/summary");
+}

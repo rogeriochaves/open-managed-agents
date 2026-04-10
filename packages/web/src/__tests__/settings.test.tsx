@@ -9,13 +9,18 @@ vi.mock("../lib/api", () => ({
   createProvider: vi.fn(),
   deleteProvider: vi.fn(),
   listMCPConnectors: vi.fn(),
+  listOrganizations: vi.fn(),
+  listUsers: vi.fn(),
+  listTeams: vi.fn(),
+  createTeam: vi.fn(),
+  createUser: vi.fn(),
+  listTeamProviderAccess: vi.fn(),
+  setTeamProviderAccess: vi.fn(),
+  listTeamMcpPolicies: vi.fn(),
+  setTeamMcpPolicy: vi.fn(),
 }));
 
 import * as api from "../lib/api";
-
-// Mock fetch for governance endpoints
-const mockFetch = vi.fn();
-global.fetch = mockFetch as any;
 
 function renderPage() {
   const queryClient = new QueryClient({
@@ -31,7 +36,6 @@ function renderPage() {
 describe("SettingsPage", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mockFetch.mockReset();
 
     vi.mocked(api.listProviders).mockResolvedValue({
       data: [
@@ -63,103 +67,98 @@ describe("SettingsPage", () => {
       ],
     });
 
-    mockFetch.mockImplementation((url: string, init?: any) => {
-      // Order matters: more-specific paths first. /provider-access
-      // and /mcp-policies are under /v1/teams/:id/, so we have to
-      // match them BEFORE the generic /teams branch.
-      if (url.includes("/provider-access")) {
-        if (init?.method === "POST") {
-          return Promise.resolve({ ok: true, json: async () => ({}) });
-        }
-        return Promise.resolve({
-          ok: true,
-          json: async () => ({
-            data: [
-              {
-                id: "tpa_1",
-                team_id: "team_default",
-                provider_id: "provider_anthropic",
-                enabled: true,
-                rate_limit_rpm: 1000,
-                monthly_budget_usd: 500,
-                created_at: "2026-04-10T00:00:00Z",
-              },
-            ],
-          }),
-        });
-      }
-      if (url.includes("/mcp-policies")) {
-        if (init?.method === "POST") {
-          return Promise.resolve({ ok: true, json: async () => ({}) });
-        }
-        return Promise.resolve({
-          ok: true,
-          json: async () => ({
-            data: [
-              {
-                id: "pol_1",
-                team_id: "team_default",
-                connector_id: "slack",
-                policy: "allowed",
-                created_at: "2026-04-10T00:00:00Z",
-              },
-            ],
-          }),
-        });
-      }
-      if (url.includes("/organizations") && !url.includes("/teams")) {
-        return Promise.resolve({
-          json: async () => ({
-            data: [
-              {
-                id: "org_default",
-                name: "Default Organization",
-                slug: "default",
-                logo_url: null,
-                sso_provider: null,
-                created_at: "2026-04-10T00:00:00Z",
-                updated_at: "2026-04-10T00:00:00Z",
-              },
-            ],
-          }),
-        });
-      }
-      if (url.includes("/users")) {
-        return Promise.resolve({
-          json: async () => ({
-            data: [
-              {
-                id: "user_admin",
-                email: "admin@localhost",
-                name: "Admin",
-                role: "admin",
-                organization_id: "org_default",
-                avatar_url: null,
-                created_at: "2026-04-10T00:00:00Z",
-                updated_at: "2026-04-10T00:00:00Z",
-              },
-            ],
-          }),
-        });
-      }
-      if (url.includes("/teams")) {
-        return Promise.resolve({
-          json: async () => ({
-            data: [
-              {
-                id: "team_default",
-                organization_id: "org_default",
-                name: "Default Team",
-                slug: "default",
-                description: null,
-                created_at: "2026-04-10T00:00:00Z",
-                updated_at: "2026-04-10T00:00:00Z",
-              },
-            ],
-          }),
-        });
-      }
-      return Promise.resolve({ json: async () => ({ data: [] }) });
+    vi.mocked(api.listOrganizations).mockResolvedValue({
+      data: [
+        {
+          id: "org_default",
+          name: "Default Organization",
+          slug: "default",
+          created_at: "2026-04-10T00:00:00Z",
+          updated_at: "2026-04-10T00:00:00Z",
+        },
+      ],
+    });
+
+    vi.mocked(api.listUsers).mockResolvedValue({
+      data: [
+        {
+          id: "user_admin",
+          email: "admin@localhost",
+          name: "Admin",
+          role: "admin",
+          organization_id: "org_default",
+          created_at: "2026-04-10T00:00:00Z",
+        },
+      ],
+    });
+
+    vi.mocked(api.listTeams).mockResolvedValue({
+      data: [
+        {
+          id: "team_default",
+          organization_id: "org_default",
+          name: "Default Team",
+          slug: "default",
+          description: null,
+          created_at: "2026-04-10T00:00:00Z",
+          updated_at: "2026-04-10T00:00:00Z",
+        },
+      ],
+    });
+
+    vi.mocked(api.listTeamProviderAccess).mockResolvedValue({
+      data: [
+        {
+          team_id: "team_default",
+          provider_id: "provider_anthropic",
+          enabled: true,
+          rate_limit_rpm: 1000,
+          monthly_budget_usd: 500,
+        },
+      ],
+    });
+
+    vi.mocked(api.listTeamMcpPolicies).mockResolvedValue({
+      data: [
+        {
+          team_id: "team_default",
+          connector_id: "slack",
+          policy: "allowed",
+        },
+      ],
+    });
+
+    vi.mocked(api.createTeam).mockResolvedValue({
+      id: "team_new",
+      organization_id: "org_default",
+      name: "Platform",
+      slug: "platform",
+      description: null,
+      created_at: "2026-04-10T00:00:00Z",
+      updated_at: "2026-04-10T00:00:00Z",
+    });
+
+    vi.mocked(api.createUser).mockResolvedValue({
+      id: "user_new",
+      email: "bob@example.com",
+      name: "Bob Example",
+      role: "member",
+      organization_id: "org_default",
+      created_at: "2026-04-10T00:00:00Z",
+    });
+
+    vi.mocked(api.setTeamProviderAccess).mockResolvedValue({
+      team_id: "team_default",
+      provider_id: "provider_anthropic",
+      enabled: false,
+      rate_limit_rpm: 1000,
+      monthly_budget_usd: 500,
+    });
+
+    vi.mocked(api.setTeamMcpPolicy).mockResolvedValue({
+      team_id: "team_default",
+      connector_id: "slack",
+      policy: "blocked",
     });
   });
 
@@ -217,45 +216,34 @@ describe("SettingsPage", () => {
     });
   });
 
-  it("opens Add team modal and POSTs to /v1/organizations/:id/teams", async () => {
+  it("opens Add team modal and calls api.createTeam", async () => {
     const user = userEvent.setup();
     renderPage();
     await user.click(screen.getByRole("button", { name: /Organization/i }));
 
-    // Wait for the org card to render
     await waitFor(() => {
       expect(screen.getByText("Default Organization")).toBeInTheDocument();
     });
 
-    // Click the card-level trigger (the first "Add team" button)
     await user.click(screen.getByRole("button", { name: /Add team/i }));
 
-    // Modal fields
     const nameInput = await screen.findByPlaceholderText(/e.g. Platform/i);
     await user.type(nameInput, "Platform");
 
-    // Slug auto-fills from name
     expect(screen.getByDisplayValue("platform")).toBeInTheDocument();
 
-    // After opening the modal both buttons are now visible — the
-    // card trigger and the modal submit. Pick the submit (the last one).
     const submitButtons = screen.getAllByRole("button", { name: /^Add team$/ });
     await user.click(submitButtons[submitButtons.length - 1]!);
 
     await waitFor(() => {
-      const posts = mockFetch.mock.calls.filter(
-        ([url, init]) =>
-          typeof url === "string" &&
-          url.includes("/organizations/org_default/teams") &&
-          init?.method === "POST",
+      expect(api.createTeam).toHaveBeenCalledWith(
+        "org_default",
+        expect.objectContaining({ name: "Platform", slug: "platform" }),
       );
-      expect(posts.length).toBeGreaterThan(0);
-      const body = JSON.parse((posts[0]![1] as any).body);
-      expect(body).toMatchObject({ name: "Platform", slug: "platform" });
     });
   });
 
-  it("opens Add user modal and POSTs to /v1/users", async () => {
+  it("opens Add user modal and calls api.createUser", async () => {
     const user = userEvent.setup();
     renderPage();
     await user.click(screen.getByRole("button", { name: /Organization/i }));
@@ -279,27 +267,19 @@ describe("SettingsPage", () => {
       "valid-initial-pw",
     );
 
-    // Role select — default is "member"
-    // Both card trigger + modal submit match; pick the last one (the submit)
     const userSubmitBtns = screen.getAllByRole("button", { name: /^Add user$/ });
     await user.click(userSubmitBtns[userSubmitBtns.length - 1]!);
 
     await waitFor(() => {
-      const posts = mockFetch.mock.calls.filter(
-        ([url, init]) =>
-          typeof url === "string" &&
-          url.endsWith("/v1/users") &&
-          init?.method === "POST",
+      expect(api.createUser).toHaveBeenCalledWith(
+        expect.objectContaining({
+          email: "bob@example.com",
+          name: "Bob Example",
+          role: "member",
+          organization_id: "org_default",
+          password: "valid-initial-pw",
+        }),
       );
-      expect(posts.length).toBeGreaterThan(0);
-      const body = JSON.parse((posts[0]![1] as any).body);
-      expect(body).toMatchObject({
-        email: "bob@example.com",
-        name: "Bob Example",
-        role: "member",
-        organization_id: "org_default",
-        password: "valid-initial-pw",
-      });
     });
   });
 
@@ -330,19 +310,12 @@ describe("SettingsPage", () => {
     const btns = screen.getAllByRole("button", { name: /^Add user$/ });
     await user.click(btns[btns.length - 1]!);
 
-    // Client-side validation kicks in before the fetch
     await waitFor(() => {
       expect(
         screen.getByText("Password must be at least 8 characters"),
       ).toBeInTheDocument();
     });
-    const posts = mockFetch.mock.calls.filter(
-      ([url, init]) =>
-        typeof url === "string" &&
-        url.endsWith("/v1/users") &&
-        init?.method === "POST",
-    );
-    expect(posts.length).toBe(0);
+    expect(api.createUser).not.toHaveBeenCalled();
   });
 
   it("switches to Governance tab and shows provider access section", async () => {
@@ -359,7 +332,6 @@ describe("SettingsPage", () => {
     const user = userEvent.setup();
     renderPage();
     await user.click(screen.getByRole("button", { name: /Governance/i }));
-    // Wait for the async provider-access fetch to land
     await waitFor(
       () => {
         expect(screen.getByDisplayValue("1000")).toBeInTheDocument();
@@ -369,12 +341,11 @@ describe("SettingsPage", () => {
     expect(screen.getByDisplayValue("500")).toBeInTheDocument();
   });
 
-  it("toggles provider access by POSTing to /v1/teams/:teamId/provider-access", async () => {
+  it("toggles provider access by calling api.setTeamProviderAccess", async () => {
     const user = userEvent.setup();
     renderPage();
     await user.click(screen.getByRole("button", { name: /Governance/i }));
 
-    // Wait for the Anthropic row's Enabled badge to render
     const enabledSpan = await screen.findByText(
       "Enabled",
       {},
@@ -385,17 +356,13 @@ describe("SettingsPage", () => {
     await user.click(enabledBtn!);
 
     await waitFor(() => {
-      const postCalls = mockFetch.mock.calls.filter(
-        ([url, init]) =>
-          typeof url === "string" &&
-          url.includes("/provider-access") &&
-          init?.method === "POST",
+      expect(api.setTeamProviderAccess).toHaveBeenCalledWith(
+        "team_default",
+        expect.objectContaining({
+          provider_id: "provider_anthropic",
+          enabled: false,
+        }),
       );
-      expect(postCalls.length).toBeGreaterThan(0);
-      const [, init] = postCalls[0]!;
-      const body = JSON.parse((init as any).body);
-      expect(body.provider_id).toBe("provider_anthropic");
-      expect(body.enabled).toBe(false);
     });
   });
 
@@ -404,9 +371,6 @@ describe("SettingsPage", () => {
     renderPage();
     await user.click(screen.getByRole("button", { name: /Governance/i }));
 
-    // The Slack policy starts as "allowed". Multiple elements match
-    // (the explainer <strong> + the badge span), so find the one
-    // inside a button — that's the clickable badge.
     await waitFor(
       () => {
         const badges = screen.getAllByText("allowed");
@@ -423,17 +387,13 @@ describe("SettingsPage", () => {
     await user.click(policyBtn!);
 
     await waitFor(() => {
-      const postCalls = mockFetch.mock.calls.filter(
-        ([url, init]) =>
-          typeof url === "string" &&
-          url.includes("/mcp-policies") &&
-          init?.method === "POST",
+      expect(api.setTeamMcpPolicy).toHaveBeenCalledWith(
+        "team_default",
+        expect.objectContaining({
+          connector_id: "slack",
+          policy: "blocked",
+        }),
       );
-      expect(postCalls.length).toBeGreaterThan(0);
-      const [, init] = postCalls[0]!;
-      const body = JSON.parse((init as any).body);
-      expect(body.connector_id).toBe("slack");
-      expect(body.policy).toBe("blocked");
     });
   });
 });

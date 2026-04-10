@@ -1,31 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { BarChart3, Coins, Zap, MessageSquare } from "lucide-react";
 import { Badge } from "../components/ui/badge";
-
-interface UsageSummary {
-  total_sessions: number;
-  total_events: number;
-  total_input_tokens: number;
-  total_output_tokens: number;
-  estimated_cost_usd: number;
-  by_agent: Array<{
-    agent_id: string;
-    agent_name: string;
-    session_count: number;
-    input_tokens: number;
-    output_tokens: number;
-    estimated_cost_usd: number;
-  }>;
-  by_provider: Array<{
-    provider_id: string;
-    provider_name: string;
-    provider_type: string;
-    session_count: number;
-    input_tokens: number;
-    output_tokens: number;
-    estimated_cost_usd: number;
-  }>;
-}
+import * as api from "../lib/api";
 
 function formatTokens(n: number): string {
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
@@ -49,9 +25,9 @@ function TokenBar({ input, output, maxTotal }: { input: number; output: number; 
 }
 
 export function UsagePage() {
-  const { data, isLoading } = useQuery<UsageSummary>({
+  const { data, isLoading } = useQuery({
     queryKey: ["usage-summary"],
-    queryFn: () => fetch("/v1/usage/summary").then((r) => r.json()),
+    queryFn: api.getUsageSummary,
   });
 
   if (isLoading || !data) {
