@@ -1,4 +1,21 @@
 services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: oma
+      POSTGRES_PASSWORD: oma
+      POSTGRES_DB: oma
+    volumes:
+      - oma-pg-data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U oma -d oma"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
   server:
     build:
       context: .
@@ -8,7 +25,11 @@ services:
     env_file:
       - .env
     environment:
-      - PORT=3001
+      PORT: 3001
+      DATABASE_URL: postgres://oma:oma@postgres:5432/oma
+    depends_on:
+      postgres:
+        condition: service_healthy
 
   web:
     build:
@@ -18,3 +39,6 @@ services:
       - "5173:80"
     depends_on:
       - server
+
+volumes:
+  oma-pg-data:

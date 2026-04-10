@@ -97,11 +97,57 @@ web:
   affinity: {}
 
 # ---------------------------------------------------------------------------
-# Persistence (SQLite data volume)
+# Database
 # ---------------------------------------------------------------------------
+# Two backends are supported:
+#   - "postgres" (recommended for production): scales horizontally, robust
+#     backups, works with managed services like AWS RDS / Supabase / Neon.
+#   - "sqlite": simplest setup, zero external dependencies, but keep
+#     server.replicas: 1 and enable persistence below.
+database:
+  # -- "postgres" or "sqlite"
+  type: postgres
+
+  # -- Postgres configuration (when type: postgres)
+  postgres:
+    # -- Deploy a bundled Postgres StatefulSet. Disable when pointing at an
+    # external managed Postgres via `url`.
+    embedded: true
+
+    # -- External Postgres connection URL. Takes precedence over embedded.
+    # Example: postgres://user:pass@host:5432/dbname
+    url: ""
+
+    # -- Embedded Postgres image
+    image: postgres:16-alpine
+
+    # -- Embedded Postgres credentials (used only when embedded=true)
+    user: oma
+    password: oma
+    database: oma
+
+    # -- PVC size for embedded Postgres data
+    storageSize: 10Gi
+
+    # -- Storage class for embedded Postgres
+    storageClassName: ""
+
+    # -- Resource requests/limits for embedded Postgres
+    resources:
+      requests:
+        cpu: 200m
+        memory: 256Mi
+      limits:
+        cpu: "1"
+        memory: 1Gi
+
+# ---------------------------------------------------------------------------
+# Persistence (for SQLite mode)
+# ---------------------------------------------------------------------------
+# Only used when database.type is "sqlite". For Postgres, see
+# database.postgres.storageSize instead.
 persistence:
-  # -- Enable persistent storage for the SQLite database. Strongly
-  # recommended for production; without it data is lost on pod restart.
+  # -- Enable persistent storage for the SQLite database.
   enabled: true
 
   # -- Storage class name. Leave empty for the cluster default.

@@ -1,3 +1,7 @@
+{{- $usePostgres := eq .Values.database.type "postgres" -}}
+{{- $useSqlite := eq .Values.database.type "sqlite" -}}
+{{- $embeddedPostgres := and $usePostgres .Values.database.postgres.embedded -}}
+{{- $externalPostgres := and $usePostgres (not .Values.database.postgres.embedded) -}}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -7,7 +11,9 @@ metadata:
     app.kubernetes.io/component: server
 spec:
   replicas: {{ .Values.server.replicas }}
-  {{- if and .Values.persistence.enabled (eq (int .Values.server.replicas) 1) }}
+  {{- if and $useSqlite .Values.persistence.enabled (eq (int .Values.server.replicas) 1) }}
+  # SQLite requires exclusive file access — Recreate avoids two pods
+  # holding the same DB file during a rolling update.
   strategy:
     type: Recreate
   {{- end }}
@@ -31,6 +37,19 @@ spec:
       {{- end }}
       securityContext:
         {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      {{- if $embeddedPostgres }}
+      initContainers:
+        - name: wait-for-postgres
+          image: busybox:1.36
+          command:
+            - sh
+            - -c
+            - |
+              until nc -z {{ include "oma.fullname" . }}-postgres 5432; do
+                echo "waiting for postgres..."
+                sleep 2
+              done
+      {{- end }}
       containers:
         - name: server
           image: {{ include "oma.server.image" . }}
@@ -44,14 +63,28 @@ spec:
           env:
             - name: PORT
               value: {{ .Values.server.port | quote }}
+            {{- if $useSqlite }}
             - name: DATABASE_PATH
               value: /data/oma.db
+            {{- end }}
+            {{- if $embeddedPostgres }}
+            - name: DATABASE_URL
+              value: postgres://{{ .Values.database.postgres.user }}:{{ .Values.database.postgres.password }}@{{ include "oma.fullname" . }}-postgres:5432/{{ .Values.database.postgres.database }}
+            {{- end }}
+            {{- if $externalPostgres }}
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "oma.secretName" . }}
+                  key: DATABASE_URL
+                  optional: false
+            {{- end }}
             - name: ANTHROPIC_API_KEY
               valueFrom:
                 secretKeyRef:
                   name: {{ include "oma.secretName" . }}
                   key: ANTHROPIC_API_KEY
-                  optional: false
+                  optional: true
             - name: OPENAI_API_KEY
               valueFrom:
                 secretKeyRef:
@@ -69,41 +102,38 @@ spec:
               value: {{ $value | quote }}
             {{- end }}
             {{- if .Values.governance.enabled }}
-            - name: GOVERNANCE_CONFIG_PATH
-              value: /etc/oma/governance.yaml
+            - name: GOVERNANCE_CONFIG
+              value: /etc/oma/governance.json
             {{- end }}
-          {{- if .Values.persistence.enabled }}
+          {{- if or (and $useSqlite .Values.persistence.enabled) .Values.governance.enabled }}
           volumeMounts:
+            {{- if and $useSqlite .Values.persistence.enabled }}
             - name: data
               mountPath: /data
+            {{- end }}
             {{- if .Values.governance.enabled }}
             - name: governance
               mountPath: /etc/oma
               readOnly: true
             {{- end }}
-          {{- else if .Values.governance.enabled }}
-          volumeMounts:
-            - name: governance
-              mountPath: /etc/oma
-              readOnly: true
           {{- end }}
           livenessProbe:
             httpGet:
-              path: /v1/health
+              path: /health
               port: http
             initialDelaySeconds: 10
             periodSeconds: 30
           readinessProbe:
             httpGet:
-              path: /v1/health
+              path: /health
               port: http
             initialDelaySeconds: 5
             periodSeconds: 10
           resources:
             {{- toYaml .Values.server.resources | nindent 12 }}
-      {{- if or .Values.persistence.enabled .Values.governance.enabled }}
+      {{- if or (and $useSqlite .Values.persistence.enabled) .Values.governance.enabled }}
       volumes:
-        {{- if .Values.persistence.enabled }}
+        {{- if and $useSqlite .Values.persistence.enabled }}
         - name: data
           persistentVolumeClaim:
             claimName: {{ include "oma.pvcName" . }}
