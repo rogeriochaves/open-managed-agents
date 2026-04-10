@@ -278,4 +278,204 @@ describe("SessionDetailPage", () => {
       expect(textarea).toHaveValue("");
     });
   });
+
+  // ── Tool result linkage (tool_use ↔ tool_result) ────────────────────
+  // Debug tracing improvements: the transcript must pair each
+  // agent.tool_result with its matching agent.tool_use so the row
+  // shows the tool name, the execution duration, and a red "Error"
+  // badge when is_error: true. Before this pairing the page showed
+  // just the raw content concatenation with the default badge, so
+  // a silently failed tool call looked identical to a successful
+  // one (the primary QA pain point).
+
+  const baseSession = {
+    id: "sesn_test123",
+    type: "session" as const,
+    title: "Tool pairing test",
+    status: "idle" as const,
+    agent: {
+      id: "agent_1",
+      type: "agent" as const,
+      name: "Agent",
+      description: null,
+      system: null,
+      model: { id: "claude-sonnet-4-6" },
+      tools: [],
+      mcp_servers: [],
+      skills: [],
+      version: 1,
+    },
+    environment_id: "env_1",
+    resources: [],
+    usage: {},
+    stats: {},
+    metadata: {},
+    vault_ids: [],
+    created_at: "2026-04-01T00:00:00Z",
+    updated_at: "2026-04-01T00:00:00Z",
+    archived_at: null,
+  };
+
+  it("renders a red Error badge when agent.tool_result has is_error=true", async () => {
+    vi.mocked(api.getSession).mockResolvedValue(baseSession as any);
+    vi.mocked(api.streamSessionEvents).mockImplementation((_id, onEvent) => {
+      onEvent({
+        id: "evt_tu",
+        type: "agent.tool_use",
+        name: "web_fetch",
+        input: { url: "https://broken.example" },
+        processed_at: "2026-04-01T00:00:01Z",
+      } as any);
+      onEvent({
+        id: "evt_tr",
+        type: "agent.tool_result",
+        tool_use_id: "evt_tu",
+        content: [
+          { type: "text", text: "Failed to fetch https://broken.example" },
+        ],
+        is_error: true,
+        processed_at: "2026-04-01T00:00:03Z",
+      } as any);
+      return { close: vi.fn() };
+    });
+
+    renderPage();
+
+    await waitFor(() => {
+      expect(
+        screen.getByText(/Failed to fetch https:\/\/broken.example/),
+      ).toBeInTheDocument();
+    });
+    // The tool_result row in the transcript carries an "Error" badge
+    // in place of the default "Result" badge.
+    expect(screen.getByText("Error")).toBeInTheDocument();
+  });
+
+  it("shows the matching tool_use name as a prefix on tool_result rows", async () => {
+    vi.mocked(api.getSession).mockResolvedValue(baseSession as any);
+    vi.mocked(api.streamSessionEvents).mockImplementation((_id, onEvent) => {
+      onEvent({
+        id: "evt_tu",
+        type: "agent.tool_use",
+        name: "web_search",
+        input: { query: "weather" },
+        processed_at: "2026-04-01T00:00:01Z",
+      } as any);
+      onEvent({
+        id: "evt_tr",
+        type: "agent.tool_result",
+        tool_use_id: "evt_tu",
+        content: [{ type: "text", text: "Sunny, 22°C" }],
+        processed_at: "2026-04-01T00:00:02.500Z",
+      } as any);
+      return { close: vi.fn() };
+    });
+
+    renderPage();
+
+    await waitFor(() => {
+      expect(screen.getByText("Sunny, 22°C")).toBeInTheDocument();
+    });
+    // Prefix line shows the tool name the result is for
+    expect(screen.getByText("→ web_search")).toBeInTheDocument();
+  });
+
+  it("shows the tool duration (end - start) on the tool_result row", async () => {
+    vi.mocked(api.getSession).mockResolvedValue(baseSession as any);
+    vi.mocked(api.streamSessionEvents).mockImplementation((_id, onEvent) => {
+      onEvent({
+        id: "evt_tu",
+        type: "agent.tool_use",
+        name: "slow_tool",
+        input: {},
+        processed_at: "2026-04-01T00:00:00.000Z",
+      } as any);
+      onEvent({
+        id: "evt_tr",
+        type: "agent.tool_result",
+        tool_use_id: "evt_tu",
+        content: [{ type: "text", text: "done" }],
+        processed_at: "2026-04-01T00:00:02.500Z",
+      } as any);
+      return { close: vi.fn() };
+    });
+
+    renderPage();
+
+    // 2.5s formatted as "2.5s"
+    await waitFor(() => {
+      expect(screen.getByText("2.5s")).toBeInTheDocument();
+    });
+  });
+
+  it("degrades gracefully when a tool_result has no matching tool_use", async () => {
+    vi.mocked(api.getSession).mockResolvedValue(baseSession as any);
+    vi.mocked(api.streamSessionEvents).mockImplementation((_id, onEvent) => {
+      // Orphan result — no matching tool_use was ever streamed
+      onEvent({
+        id: "evt_orphan",
+        type: "agent.tool_result",
+        tool_use_id: "nonexistent",
+        content: [{ type: "text", text: "orphan result" }],
+        processed_at: "2026-04-01T00:00:05Z",
+      } as any);
+      return { close: vi.fn() };
+    });
+
+    renderPage();
+
+    // Content still renders, no crash
+    await waitFor(() => {
+      expect(screen.getByText("orphan result")).toBeInTheDocument();
+    });
+    // No "→ <name>" prefix since we don't know the tool name
+    expect(screen.queryByText(/^→ /)).not.toBeInTheDocument();
+  });
+
+  it("downloads the events JSON when the Download button is clicked", async () => {
+    vi.mocked(api.getSession).mockResolvedValue(baseSession as any);
+    vi.mocked(api.streamSessionEvents).mockImplementation((_id, onEvent) => {
+      onEvent({
+        id: "evt_1",
+        type: "user.message",
+        content: [{ type: "text", text: "hello" }],
+        processed_at: "2026-04-01T00:00:01Z",
+      } as any);
+      return { close: vi.fn() };
+    });
+
+    // Stub the DOM bits the download handler touches
+    const createObjectURL = vi.fn(() => "blob:stub");
+    const revokeObjectURL = vi.fn();
+    (globalThis as any).URL.createObjectURL = createObjectURL;
+    (globalThis as any).URL.revokeObjectURL = revokeObjectURL;
+    const anchorClick = vi.fn();
+    const origCreateElement = document.createElement.bind(document);
+    const createElementSpy = vi
+      .spyOn(document, "createElement")
+      .mockImplementation((tag: string) => {
+        const el = origCreateElement(tag);
+        if (tag === "a") {
+          (el as HTMLAnchorElement).click = anchorClick;
+        }
+        return el;
+      });
+
+    const user = userEvent.setup();
+    renderPage();
+
+    await waitFor(() => {
+      expect(screen.getByText("hello")).toBeInTheDocument();
+    });
+
+    await user.click(
+      screen.getByTitle(/Download events JSON/i).closest("button")!,
+    );
+
+    expect(createObjectURL).toHaveBeenCalled();
+    expect(anchorClick).toHaveBeenCalled();
+    expect(revokeObjectURL).toHaveBeenCalledWith("blob:stub");
+
+    createElementSpy.mockRestore();
+  });
 });

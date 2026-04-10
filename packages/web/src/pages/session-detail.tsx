@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 import { useParams, Link } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
@@ -116,9 +116,64 @@ function formatTokens(event: any): string {
   return "";
 }
 
-function formatDuration(event: any): string {
-  // For tool results, we could calculate duration from the matching tool_use
-  return "";
+function formatDurationMs(ms: number): string {
+  if (ms < 1000) return `${ms}ms`;
+  if (ms < 60_000) return `${(ms / 1000).toFixed(1)}s`;
+  const mins = Math.floor(ms / 60_000);
+  const secs = Math.floor((ms % 60_000) / 1000);
+  return `${mins}m${secs}s`;
+}
+
+/**
+ * Build a map from tool_result event id → info about its matching
+ * tool_use. Lets the transcript/debug rows show the tool name and
+ * the time it took, and lets us flag error results visually.
+ *
+ * Key design choice: we return a fresh Map so the caller can
+ * memoize it with useMemo against `events`. Recomputing on every
+ * render would be O(n²) for large sessions.
+ */
+interface ToolResultMeta {
+  name: string | null;
+  durationMs: number | null;
+  isError: boolean;
+}
+
+function buildToolResultIndex(events: any[]): Map<string, ToolResultMeta> {
+  const byToolUseId = new Map<string, { name: string; processedAt: string }>();
+  const index = new Map<string, ToolResultMeta>();
+
+  for (const e of events) {
+    if (e.type === "agent.tool_use" || e.type === "agent.mcp_tool_use") {
+      if (e.id && e.processed_at) {
+        byToolUseId.set(e.id, {
+          name: e.name ?? "tool",
+          processedAt: e.processed_at,
+        });
+      }
+    } else if (
+      e.type === "agent.tool_result" ||
+      e.type === "agent.mcp_tool_result"
+    ) {
+      const useId = e.tool_use_id ?? e.mcp_tool_use_id;
+      const match = useId ? byToolUseId.get(useId) : undefined;
+      let durationMs: number | null = null;
+      if (match && e.processed_at) {
+        durationMs = Math.max(
+          0,
+          new Date(e.processed_at).getTime() -
+            new Date(match.processedAt).getTime(),
+        );
+      }
+      index.set(e.id, {
+        name: match?.name ?? null,
+        durationMs,
+        isError: e.is_error === true,
+      });
+    }
+  }
+
+  return index;
 }
 
 export function SessionDetailPage() {
@@ -212,16 +267,25 @@ export function SessionDetailPage() {
       )
     : events;
 
-  // Transcript view: condense events into meaningful rows
+  // Transcript view: condense events into meaningful rows. Includes
+  // tool_result events so we can surface failures — a silently failed
+  // tool call looked identical to a successful one before.
   const transcriptEvents = filteredEvents.filter(
     (e) =>
       e.type === "user.message" ||
       e.type === "agent.message" ||
       e.type === "agent.tool_use" ||
       e.type === "agent.mcp_tool_use" ||
+      e.type === "agent.tool_result" ||
+      e.type === "agent.mcp_tool_result" ||
       e.type === "session.status_idle" ||
       e.type === "session.error"
   );
+
+  // Pair each tool_result with its matching tool_use once, so the
+  // render loop is O(n) instead of O(n²). Keyed on raw `events` so
+  // it recomputes only when the live stream pushes new rows.
+  const toolResultIndex = useMemo(() => buildToolResultIndex(events), [events]);
 
   const sessionCreatedAt = session?.created_at ?? new Date().toISOString();
 
@@ -368,20 +432,37 @@ export function SessionDetailPage() {
                 ? formatElapsed(sessionCreatedAt, event.processed_at)
                 : "";
               const tokens = formatTokens(event);
+              const resultMeta = toolResultIndex.get(event.id);
+              const isFailedResult = resultMeta?.isError === true;
+              const resultPrefix = resultMeta?.name
+                ? `→ ${resultMeta.name}`
+                : null;
+              const resultDuration =
+                resultMeta?.durationMs != null
+                  ? formatDurationMs(resultMeta.durationMs)
+                  : null;
 
               return (
                 <div
                   key={event.id ?? i}
                   onClick={() => setSelectedEvent(event)}
                   className={`flex items-start gap-3 px-6 py-3 cursor-pointer hover:bg-surface-hover transition-colors ${selectedEvent?.id === event.id ? "bg-surface-hover" : ""}`}
+                  data-event-id={event.id}
                 >
                   <Badge
-                    variant={badge.variant as any}
+                    variant={
+                      isFailedResult ? "terminated" : (badge.variant as any)
+                    }
                     className="mt-0.5 shrink-0 min-w-[60px] justify-center"
                   >
-                    {badge.label}
+                    {isFailedResult ? "Error" : badge.label}
                   </Badge>
                   <div className="flex-1 min-w-0">
+                    {resultPrefix && (
+                      <div className="text-[11px] text-text-muted font-mono mb-0.5">
+                        {resultPrefix}
+                      </div>
+                    )}
                     {event.type === "agent.message" ? (
                       <div className="text-sm text-text-primary">
                         <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
@@ -389,13 +470,20 @@ export function SessionDetailPage() {
                         </ReactMarkdown>
                       </div>
                     ) : (
-                      <p className="text-sm text-text-primary whitespace-pre-wrap break-words">
-                        {content}
+                      <p
+                        className={`text-sm whitespace-pre-wrap break-words ${isFailedResult ? "text-red-600" : "text-text-primary"}`}
+                      >
+                        {content || event.type}
                       </p>
                     )}
                   </div>
                   <div className="flex items-center gap-3 shrink-0 text-xs text-text-muted">
                     {tokens && <span>{tokens}</span>}
+                    {resultDuration && (
+                      <span className="tabular-nums" title="Tool execution time">
+                        {resultDuration}
+                      </span>
+                    )}
                     {elapsed && <span className="tabular-nums">{elapsed}</span>}
                   </div>
                 </div>
@@ -411,26 +499,39 @@ export function SessionDetailPage() {
                 ? formatElapsed(sessionCreatedAt, event.processed_at)
                 : "";
               const tokens = formatTokens(event);
+              const resultMeta = toolResultIndex.get(event.id);
+              const isFailedResult = resultMeta?.isError === true;
+              const resultDuration =
+                resultMeta?.durationMs != null
+                  ? formatDurationMs(resultMeta.durationMs)
+                  : null;
 
               return (
                 <div
                   key={event.id ?? i}
                   onClick={() => setSelectedEvent(event)}
                   className={`flex items-start gap-3 px-6 py-2 cursor-pointer hover:bg-surface-hover transition-colors ${selectedEvent?.id === event.id ? "bg-surface-hover" : ""}`}
+                  data-event-id={event.id}
                 >
                   <Badge
-                    variant={badge.variant as any}
+                    variant={
+                      isFailedResult ? "terminated" : (badge.variant as any)
+                    }
                     className="mt-0.5 shrink-0 min-w-[70px] justify-center text-[10px]"
                   >
-                    {badge.label}
+                    {isFailedResult ? "Error" : badge.label}
                   </Badge>
                   <div className="flex-1 min-w-0">
-                    <p className="text-xs text-text-secondary whitespace-pre-wrap break-words line-clamp-3">
+                    <p
+                      className={`text-xs whitespace-pre-wrap break-words line-clamp-3 ${isFailedResult ? "text-red-600" : "text-text-secondary"}`}
+                    >
+                      {resultMeta?.name ? `${resultMeta.name}: ` : ""}
                       {content || event.type}
                     </p>
                   </div>
                   <div className="flex items-center gap-3 shrink-0 text-[10px] text-text-muted tabular-nums">
                     {tokens && <span>{tokens}</span>}
+                    {resultDuration && <span>{resultDuration}</span>}
                     {elapsed && <span>{elapsed}</span>}
                   </div>
                 </div>
