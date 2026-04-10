@@ -123,6 +123,42 @@ const CONNECTORS: MCPConnector[] = [
     category: "payments",
     auth_type: "token",
   },
+  {
+    id: "posthog",
+    name: "PostHog",
+    description: "Query product analytics, feature flags, session recordings, and user data.",
+    url: "https://mcp.posthog.com/sse",
+    icon: "posthog",
+    category: "analytics",
+    auth_type: "token",
+  },
+  {
+    id: "hubspot",
+    name: "HubSpot",
+    description: "Manage contacts, deals, tickets, and marketing automation.",
+    url: "https://mcp.hubspot.com/sse",
+    icon: "hubspot",
+    category: "support",
+    auth_type: "oauth",
+  },
+  {
+    id: "zendesk",
+    name: "Zendesk",
+    description: "Manage support tickets, users, and knowledge base articles.",
+    url: "https://mcp.zendesk.com/sse",
+    icon: "zendesk",
+    category: "support",
+    auth_type: "oauth",
+  },
+  {
+    id: "datadog",
+    name: "Datadog",
+    description: "Query metrics, logs, traces, and monitor infrastructure health.",
+    url: "https://mcp.datadog.com/sse",
+    icon: "datadog",
+    category: "monitoring",
+    auth_type: "token",
+  },
 ];
 
 // ── Schemas ────────────────────────────────────────────────────────────────
