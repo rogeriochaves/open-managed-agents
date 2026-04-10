@@ -127,4 +127,32 @@ describe("Auth guard (AUTH_ENABLED default on)", () => {
     });
     expect(res.status).toBe(401);
   });
+
+  it("accepts Authorization: Bearer <session_token> (CLI / curl)", async () => {
+    const res = await app.request("/v1/agents", {
+      headers: { authorization: `Bearer ${adminCookie}` },
+    });
+    expect(res.status).toBe(200);
+  });
+
+  it("accepts x-api-key: <session_token> (Anthropic-SDK compat)", async () => {
+    const res = await app.request("/v1/agents", {
+      headers: { "x-api-key": adminCookie },
+    });
+    expect(res.status).toBe(200);
+  });
+
+  it("rejects a bogus Bearer token with 401", async () => {
+    const res = await app.request("/v1/agents", {
+      headers: { authorization: `Bearer not-a-real-token` },
+    });
+    expect(res.status).toBe(401);
+  });
+
+  it("rejects a bogus x-api-key with 401", async () => {
+    const res = await app.request("/v1/agents", {
+      headers: { "x-api-key": "not-a-real-token" },
+    });
+    expect(res.status).toBe(401);
+  });
 });

@@ -18,7 +18,7 @@
 
 import type { Context, Next } from "hono";
 import { getCookie } from "hono/cookie";
-import { validateSession } from "../lib/auth-session.js";
+import { validateSession, type SessionUser } from "../lib/auth-session.js";
 
 /**
  * Paths that must be reachable without an authenticated session,
@@ -49,8 +49,30 @@ export async function authGuard(c: Context, next: Next) {
   // CORS preflight — never guarded.
   if (c.req.method === "OPTIONS") return next();
 
-  const token = getCookie(c, "oma_session");
-  const user = await validateSession(token);
+  // Resolve the session token from (in precedence order):
+  //   1. oma_session cookie (browsers / the web app)
+  //   2. Authorization: Bearer <token>   (CLI / curl / generated clients)
+  //   3. x-api-key: <token>              (Anthropic-SDK compatibility)
+  //
+  // The token value in all cases is the same opaque session token
+  // returned by POST /v1/auth/login → Set-Cookie: oma_session=<token>.
+  // A CLI user can therefore: curl -X POST /v1/auth/login → extract
+  // the cookie → export OMA_API_KEY=<cookie-value> → every subsequent
+  // CLI call lands authenticated.
+  let token: string | undefined = getCookie(c, "oma_session");
+
+  if (!token) {
+    const authHeader = c.req.header("authorization");
+    if (authHeader) {
+      const m = authHeader.match(/^Bearer\s+(.+)$/i);
+      if (m) token = m[1];
+    }
+  }
+  if (!token) {
+    token = c.req.header("x-api-key");
+  }
+
+  const user: SessionUser | null = await validateSession(token);
   if (!user) {
     return c.json(
       { error: { type: "authentication_error", message: "Not authenticated" } },
