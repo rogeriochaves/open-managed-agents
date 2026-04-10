@@ -91,8 +91,22 @@ Guidelines:
 - You are NOT running the agent. You are helping them *design* it. Do not pretend to execute anything.
 - When the user seems happy ("looks good", "ship it", "let's go"), set done=true and thank them.
 
-IMPORTANT — Structured output:
-At the VERY END of every reply, you MUST emit a fenced code block with the language tag \`oma-draft\` containing the current best-guess agent config as JSON. Do NOT wrap it in any other text after the closing fence.
+IMPORTANT — Structured output (READ THIS CAREFULLY):
+
+Every single reply MUST end with a fenced code block using the language tag \`oma-draft\`. The block contains the current best-guess agent config as JSON. No text is allowed after the closing fence.
+
+The ONLY correct format is:
+
+\`\`\`oma-draft
+{
+  "name": "...",
+  ...
+}
+\`\`\`
+
+DO NOT emit raw JSON without the fence. DO NOT use \`\`\`json as the language tag. DO NOT omit the block. Without this fence, the UI cannot show the draft preview and the Create button stays disabled.
+
+If you've already emitted a draft in a previous turn, re-emit the FULL updated draft every turn (not a diff) — the client merges on top of the previous draft.
 
 Schema for the oma-draft block:
 {
@@ -154,21 +168,110 @@ function sanitizeDraft(draft: Draft): Draft {
   return { ...draft, skills: filtered };
 }
 
+/**
+ * Pull a JSON draft object out of the raw assistant text. Tries
+ * three strategies in order of specificity:
+ *
+ *   1. `oma-draft` fenced code block (the instructed format)
+ *   2. Any generic ```json / ``` fenced block
+ *   3. The first balanced top-level `{…}` in the reply
+ *
+ * Non-Anthropic LLMs (observed with OpenAI gpt-5-mini) routinely
+ * ignore the fenced-language instruction and emit raw JSON inline.
+ * Without a fallback the parser silently drops the draft and the
+ * user sees no preview, no Create button, and no hint what went
+ * wrong. The fallback strategies recover gracefully.
+ */
+function extractDraftJson(
+  rawText: string,
+): { jsonText: string; fenceText: string } | null {
+  // Strategy 1: explicit oma-draft fence
+  const omaMatch = rawText.match(/```oma-draft\s*\n?([\s\S]*?)\n?```/);
+  if (omaMatch) return { jsonText: omaMatch[1]!, fenceText: omaMatch[0] };
+
+  // Strategy 2: any ```json (or plain ```) fenced block that parses
+  // as an object. We only accept parseable JSON so we don't
+  // accidentally grab a shell snippet or example.
+  const codeFenceRe = /```(?:json)?\s*\n?([\s\S]*?)\n?```/g;
+  let m: RegExpExecArray | null;
+  while ((m = codeFenceRe.exec(rawText)) !== null) {
+    const body = m[1]!.trim();
+    if (!body.startsWith("{")) continue;
+    try {
+      JSON.parse(body);
+      return { jsonText: body, fenceText: m[0] };
+    } catch {
+      /* try next */
+    }
+  }
+
+  // Strategy 3: scan for a balanced top-level { ... } anywhere in
+  // the text and test-parse it. This catches the "LLM emitted raw
+  // JSON without any fence" case.
+  const firstBrace = rawText.indexOf("{");
+  if (firstBrace !== -1) {
+    let depth = 0;
+    let inString = false;
+    let escape = false;
+    for (let i = firstBrace; i < rawText.length; i++) {
+      const c = rawText[i]!;
+      if (escape) {
+        escape = false;
+        continue;
+      }
+      if (inString) {
+        if (c === "\\") escape = true;
+        else if (c === '"') inString = false;
+        continue;
+      }
+      if (c === '"') inString = true;
+      else if (c === "{") depth++;
+      else if (c === "}") {
+        depth--;
+        if (depth === 0) {
+          const candidate = rawText.slice(firstBrace, i + 1);
+          try {
+            const parsed = JSON.parse(candidate);
+            // Only accept if it looks like a draft — must have at
+            // least one of the expected top-level keys so we don't
+            // grab an unrelated code example.
+            if (
+              parsed &&
+              typeof parsed === "object" &&
+              ("name" in parsed ||
+                "description" in parsed ||
+                "system" in parsed ||
+                "mcp_servers" in parsed)
+            ) {
+              return { jsonText: candidate, fenceText: candidate };
+            }
+          } catch {
+            /* fall through */
+          }
+          break;
+        }
+      }
+    }
+  }
+
+  return null;
+}
+
 function parseAssistantReply(
   rawText: string,
   previousDraft: Draft,
 ): ParsedReply {
-  const fenceMatch = rawText.match(/```oma-draft\s*\n([\s\S]*?)\n?```/);
+  const extracted = extractDraftJson(rawText);
 
-  if (!fenceMatch) {
+  if (!extracted) {
     return { reply: rawText.trim(), draft: previousDraft, done: false };
   }
 
-  const reply = rawText.replace(fenceMatch[0], "").trim();
+  const reply = rawText.replace(extracted.fenceText, "").trim();
 
   let parsed: Record<string, unknown> = {};
   try {
-    parsed = JSON.parse(fenceMatch[1]!) as Record<string, unknown>;
+    parsed = JSON.parse(extracted.jsonText) as Record<string, unknown>;
   } catch {
     return { reply, draft: previousDraft, done: false };
   }

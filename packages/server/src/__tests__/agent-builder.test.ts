@@ -201,6 +201,77 @@ describe("POST /v1/agent-builder/chat", () => {
     expect(body.draft.system).toBe("final prompt");
   });
 
+  it("parses a raw JSON draft emitted inline without any fence (OpenAI fallback)", async () => {
+    // Regression: OpenAI gpt-5-mini has been observed ignoring
+    // the `oma-draft` fence instruction and emitting the JSON
+    // draft as plain inline text. The parser now falls back to
+    // scanning for a balanced top-level {…} anywhere in the
+    // reply, so the draft still surfaces in the UI.
+    stubChat.mockResolvedValueOnce({
+      content: [
+        {
+          type: "text",
+          text: `Quick question: what math level should this target?
+
+{
+  "name": "math-tutor",
+  "description": "A friendly math tutor",
+  "system": "You are a patient math tutor."
+}`,
+        },
+      ],
+      stop_reason: "end_turn",
+      usage: { input_tokens: 20, output_tokens: 40 },
+      model: "stub-model",
+    });
+
+    const res = await app.request("/v1/agent-builder/chat", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        messages: [{ role: "user", content: "math tutor" }],
+      }),
+    });
+
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      reply: string;
+      draft: { name?: string; description?: string };
+    };
+    expect(body.draft.name).toBe("math-tutor");
+    expect(body.draft.description).toBe("A friendly math tutor");
+    // The JSON block is stripped from the reply
+    expect(body.reply).toContain("Quick question");
+    expect(body.reply).not.toContain('"name": "math-tutor"');
+  });
+
+  it("parses a ```json fenced block (second-best fallback)", async () => {
+    // Some OpenAI turns use ```json instead of ```oma-draft.
+    // Accept that too rather than silently dropping the draft.
+    stubChat.mockResolvedValueOnce({
+      content: [
+        {
+          type: "text",
+          text: "Here's the draft:\n\n```json\n{\n  \"name\": \"fallback-agent\",\n  \"system\": \"you work\"\n}\n```",
+        },
+      ],
+      stop_reason: "end_turn",
+      usage: { input_tokens: 10, output_tokens: 20 },
+      model: "stub-model",
+    });
+
+    const res = await app.request("/v1/agent-builder/chat", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        messages: [{ role: "user", content: "go" }],
+      }),
+    });
+
+    const body = (await res.json()) as { draft: { name?: string } };
+    expect(body.draft.name).toBe("fallback-agent");
+  });
+
   it("drops hallucinated invalid skill types (e.g. OpenAI LLM emitting type:openai)", async () => {
     // Regression: non-Anthropic LLMs backing the builder have
     // been observed extending the system-prompt example
