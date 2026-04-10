@@ -381,7 +381,7 @@ export function AgentDetailPage() {
               <p className="text-[11px] text-text-muted">
                 Tools and skills are still read-only — edit the full config via{" "}
                 <code className="font-mono">
-                  PUT /v1/agents/{agent.id}
+                  POST /v1/agents/{agent.id}
                 </code>
                 .
               </p>

@@ -399,7 +399,7 @@ open-managed-agents/
 │   ├── web/            # React frontend
 │   └── cli/            # CLI tool (oma)
 ├── helm/               # Kubernetes Helm chart
-├── specs/              # BDD feature specifications (17 files)
+├── specs/              # BDD feature specifications (49 files)
 ├── governance.example.json  # Example governance config
 ├── docker-compose.yml
 ├── Dockerfile.server
@@ -441,7 +441,7 @@ Full OpenAPI documentation is available at `http://localhost:3001/docs` when the
 ```bash
 pnpm dev          # Start server + frontend
 pnpm build        # Build all packages
-pnpm test         # Run tests (74 tests across 10 suites)
+pnpm test         # Run tests (280+ tests across 36 suites)
 pnpm typecheck    # Type-check all packages
 ```
 
