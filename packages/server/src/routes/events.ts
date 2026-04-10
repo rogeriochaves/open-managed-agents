@@ -212,7 +212,36 @@ export function registerEventRoutes(app: OpenAPIHono) {
         e.type === "user.message" || e.type === "user.custom_tool_result"
     );
 
-    if (hasUserMessage) {
+    // Handle user.tool_confirmation: approve or deny a pending tool call
+    for (const evt of body.events ?? []) {
+      if (evt.type === "user.tool_confirmation") {
+        const { tool_use_id: toolUseId, result, deny_message } = evt;
+
+        if (result === "allow") {
+          // Update the tool_use event to reflect that it is now allowed
+          await db.run(
+            "UPDATE events SET data = json_replace(data, '$.evaluated_permission', 'allow') WHERE id = ?",
+            toolUseId
+          );
+        } else if (result === "deny") {
+          // Inject a denial tool result so the model sees the denial in history
+          await db.run(
+            `INSERT INTO events (id, session_id, type, data, processed_at) VALUES (?, ?, ?, ?, ?)`,
+            newId("evt"),
+            sessionId,
+            "agent.tool_result",
+            JSON.stringify({
+              tool_use_id: toolUseId,
+              content: [{ type: "text", text: deny_message ?? "Tool execution was denied by the user." }],
+              is_error: true,
+            }),
+            new Date().toISOString()
+          );
+        }
+      }
+    }
+
+    if (hasUserMessage || (body.events ?? []).some((e: any) => e.type === "user.tool_confirmation")) {
       // Resolve provider
       const providerConfig = await getProviderConfig(agentSnapshot.model_provider_id);
       if (providerConfig) {
@@ -224,6 +253,7 @@ export function registerEventRoutes(app: OpenAPIHono) {
           tools: agentSnapshot.tools ?? [],
           mcp_servers: agentSnapshot.mcp_servers ?? [],
           skills: agentSnapshot.skills ?? [],
+          vault_ids: JSON.parse(session.vault_ids ?? "[]"),
         };
 
         // Resolve the caller's org so the engine can look up stored
