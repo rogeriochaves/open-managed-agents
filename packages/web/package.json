@@ -12,6 +12,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@fontsource/inter": "^5.2.8",
     "@open-managed-agents/types": "workspace:*",
     "@tanstack/react-query": "^5.65.0",
     "lucide-react": "^0.475.0",

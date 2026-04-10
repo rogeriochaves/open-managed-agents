@@ -21,13 +21,12 @@ describe("Sidebar", () => {
 
   it("renders workspace selector", () => {
     renderSidebar();
-    expect(screen.getByText("Default")).toBeInTheDocument();
+    expect(screen.getByText("Default workspace")).toBeInTheDocument();
   });
 
-  it("renders Managed Agents section with New badge", () => {
+  it("renders Managed Agents section", () => {
     renderSidebar();
     expect(screen.getByText("Managed Agents")).toBeInTheDocument();
-    expect(screen.getByText("New")).toBeInTheDocument();
   });
 
   it("renders all nav items", () => {
@@ -42,7 +41,7 @@ describe("Sidebar", () => {
   it("highlights active link", () => {
     renderSidebar();
     const quickstartLink = screen.getByText("Quickstart").closest("a");
-    expect(quickstartLink?.className).toContain("text-accent-blue");
+    expect(quickstartLink?.className).toContain("text-orange-700");
   });
 
   it("has collapse button", () => {

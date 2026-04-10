@@ -17,15 +17,22 @@ interface BadgeProps {
 }
 
 const variantClasses: Record<BadgeVariant, string> = {
-  default: "bg-surface-hover text-text-secondary",
-  active: "bg-green-900/40 text-green-400 border border-green-800/50",
-  idle: "bg-gray-800/40 text-gray-400 border border-gray-700/50",
-  running: "bg-yellow-900/40 text-yellow-400 border border-yellow-800/50",
-  terminated: "bg-red-900/40 text-red-400 border border-red-800/50",
+  default:
+    "bg-gray-100 text-gray-700 border border-gray-200",
+  active:
+    "bg-green-50 text-green-700 border border-green-200",
+  idle:
+    "bg-gray-100 text-gray-500 border border-gray-200",
+  running:
+    "bg-yellow-50 text-yellow-700 border border-yellow-200",
+  terminated:
+    "bg-red-50 text-red-700 border border-red-200",
   rescheduling:
-    "bg-amber-900/40 text-amber-400 border border-amber-800/50",
-  new: "bg-accent-blue/20 text-accent-blue border border-accent-blue/30",
-  info: "bg-purple-900/40 text-purple-400 border border-purple-800/50",
+    "bg-orange-50 text-orange-700 border border-orange-200",
+  new:
+    "bg-orange-50 text-orange-700 border border-orange-200",
+  info:
+    "bg-blue-50 text-blue-700 border border-blue-200",
 };
 
 export function Badge({
@@ -35,7 +42,7 @@ export function Badge({
 }: BadgeProps) {
   return (
     <span
-      className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${variantClasses[variant]} ${className}`}
+      className={`inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide ${variantClasses[variant]} ${className}`}
     >
       {children}
     </span>

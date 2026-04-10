@@ -1,44 +1,348 @@
 @import "tailwindcss";
+@import "@fontsource/inter/400.css";
+@import "@fontsource/inter/500.css";
+@import "@fontsource/inter/600.css";
+@import "@fontsource/inter/700.css";
 
 @theme {
-  --color-surface-primary: #0d0d0d;
-  --color-surface-secondary: #141414;
-  --color-surface-sidebar: #1a1a1a;
-  --color-surface-card: #1e1e1e;
-  --color-surface-hover: #252525;
-  --color-surface-border: #2a2a2a;
-  --color-accent-blue: #5b8def;
-  --color-accent-purple: #8b5cf6;
-  --color-text-primary: #f5f5f5;
-  --color-text-secondary: #a0a0a0;
-  --color-text-muted: #666666;
-  --color-status-active: #22c55e;
-  --color-status-idle: #6b7280;
-  --color-status-running: #eab308;
-  --color-status-terminated: #ef4444;
-  --color-status-rescheduling: #f59e0b;
+  /* ── Font ─────────────────────────────────────────────────────── */
+  --font-sans: "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI",
+    Roboto, "Helvetica Neue", Arial, sans-serif;
+
+  /* ── Gray palette (from LangWatch colorSystem) ────────────────── */
+  --color-gray-50: #F7FAFC;
+  --color-gray-100: #F2F4F8;
+  --color-gray-200: #E8EBF2;
+  --color-gray-300: #E0E2E6;
+  --color-gray-350: #DDDDDD;
+  --color-gray-375: #B8BDBD;
+  --color-gray-400: #9CA3AF;
+  --color-gray-500: #51676C;
+  --color-gray-600: #213B41;
+  --color-gray-700: #1F2937;
+  --color-gray-800: #090F1D;
+  --color-gray-900: #111113;
+  --color-gray-950: #09090b;
+
+  /* ── Orange (brand) ───────────────────────────────────────────── */
+  --color-orange-50: #FFFAF0;
+  --color-orange-100: #FFF3E4;
+  --color-orange-200: #FFD19B;
+  --color-orange-300: #FF9E2C;
+  --color-orange-400: #ED8926;
+  --color-orange-500: #ED8926;
+  --color-orange-600: #dd6b20;
+  --color-orange-700: #c05621;
+  --color-orange-800: #7B341E;
+  --color-orange-900: #652B19;
+
+  /* ── Red ──────────────────────────────────────────────────────── */
+  --color-red-50: #FFF5F5;
+  --color-red-100: #FED7D7;
+  --color-red-200: #FEB2B2;
+  --color-red-300: #FC8181;
+  --color-red-400: #F56565;
+  --color-red-500: #E53E3E;
+  --color-red-600: #C53030;
+  --color-red-700: #9B2C2C;
+  --color-red-800: #822727;
+  --color-red-900: #63171B;
+
+  /* ── Green ────────────────────────────────────────────────────── */
+  --color-green-50: #F0FFF4;
+  --color-green-100: #C6F6D5;
+  --color-green-200: #9AE6B4;
+  --color-green-300: #68D391;
+  --color-green-400: #48BB78;
+  --color-green-500: #38A169;
+  --color-green-600: #2F855A;
+  --color-green-700: #276749;
+  --color-green-800: #22543D;
+  --color-green-900: #1C4532;
+
+  /* ── Blue ─────────────────────────────────────────────────────── */
+  --color-blue-50: #ebf8ff;
+  --color-blue-100: #bee3f8;
+  --color-blue-200: #90cdf4;
+  --color-blue-300: #63b3ed;
+  --color-blue-400: #4299e1;
+  --color-blue-500: #3182ce;
+  --color-blue-600: #2b6cb0;
+  --color-blue-700: #2c5282;
+  --color-blue-800: #2a4365;
+  --color-blue-900: #1A365D;
+
+  /* ── Yellow ───────────────────────────────────────────────────── */
+  --color-yellow-50: #FFFFF0;
+  --color-yellow-100: #FEFCBF;
+  --color-yellow-200: #FAF089;
+  --color-yellow-300: #F6E05E;
+  --color-yellow-400: #ECC94B;
+  --color-yellow-500: #D69E2E;
+  --color-yellow-600: #B7791F;
+  --color-yellow-700: #975A16;
+  --color-yellow-800: #744210;
+  --color-yellow-900: #5F370E;
+
+  /* ── Purple ───────────────────────────────────────────────────── */
+  --color-purple-50: #FAF5FF;
+  --color-purple-100: #E9D8FD;
+  --color-purple-200: #D6BCFA;
+  --color-purple-300: #B794F4;
+  --color-purple-400: #9F7AEA;
+  --color-purple-500: #805AD5;
+  --color-purple-600: #6B46C1;
+  --color-purple-700: #553C9A;
+  --color-purple-800: #44337A;
+  --color-purple-900: #322659;
+
+  /* ── Radius ───────────────────────────────────────────────────── */
+  --radius-sm: 0.25rem;
+  --radius-md: 0.375rem;
+  --radius-lg: 0.5rem;
+  --radius-xl: 0.75rem;
+  --radius-2xl: 1rem;
 }
 
-body {
-  background-color: var(--color-surface-primary);
-  color: var(--color-text-primary);
+/* ──────────────────────────────────────────────────────────────────
+ * Semantic tokens (light-mode defaults, dark overrides below)
+ * Following LangWatch's bg.page / bg.surface / bg.panel naming.
+ * ────────────────────────────────────────────────────────────────── */
+@layer base {
+  :root {
+    color-scheme: light;
+
+    /* Backgrounds */
+    --bg-page: var(--color-gray-100);     /* app shell bg */
+    --bg-surface: #ffffff;                 /* cards, panels */
+    --bg-panel: #ffffff;                   /* dropdowns, dialogs */
+    --bg-subtle: var(--color-gray-50);     /* hover on page */
+    --bg-muted: var(--color-gray-100);     /* empty states */
+    --bg-hover: var(--color-gray-200);     /* interactive hover */
+    --bg-active: var(--color-gray-300);    /* pressed */
+    --bg-inverse: var(--color-gray-900);
+
+    /* Foreground / text */
+    --fg-primary: var(--color-gray-900);
+    --fg-secondary: var(--color-gray-700);
+    --fg-muted: var(--color-gray-500);
+    --fg-subtle: var(--color-gray-400);
+    --fg-inverse: #ffffff;
+
+    /* Borders */
+    --border-default: var(--color-gray-200);
+    --border-muted: var(--color-gray-300);
+    --border-strong: var(--color-gray-375);
+
+    /* Brand / accent */
+    --accent: var(--color-orange-400);
+    --accent-hover: var(--color-orange-600);
+    --accent-subtle: var(--color-orange-100);
+    --accent-fg: var(--color-orange-800);
+
+    /* Semantic */
+    --success: var(--color-green-500);
+    --success-subtle: var(--color-green-50);
+    --success-fg: var(--color-green-700);
+    --warning: var(--color-yellow-500);
+    --warning-subtle: var(--color-yellow-50);
+    --warning-fg: var(--color-yellow-700);
+    --danger: var(--color-red-500);
+    --danger-subtle: var(--color-red-50);
+    --danger-fg: var(--color-red-700);
+    --info: var(--color-blue-500);
+    --info-subtle: var(--color-blue-50);
+    --info-fg: var(--color-blue-700);
+
+    /* Shadows (subtle, like LangWatch) */
+    --shadow-xs: 0 1px 2px 0 rgb(0 0 0 / 0.04);
+    --shadow-sm: 0 1px 3px 0 rgb(0 0 0 / 0.06), 0 1px 2px -1px rgb(0 0 0 / 0.04);
+    --shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.08), 0 2px 4px -2px rgb(0 0 0 / 0.05);
+    --shadow-lg: 0 10px 15px -3px rgb(0 0 0 / 0.08), 0 4px 6px -4px rgb(0 0 0 / 0.04);
+
+    /* Legacy surface values that tokens resolve to (light mode) */
+    --surface-primary: var(--bg-page);
+    --surface-secondary: var(--bg-surface);
+    --surface-sidebar: var(--bg-surface);
+    --surface-card: var(--bg-surface);
+    --surface-hover: var(--bg-hover);
+    --surface-border: var(--border-default);
+    --text-primary: var(--fg-primary);
+    --text-secondary: var(--fg-secondary);
+    --text-muted: var(--fg-muted);
+    --accent-blue-legacy: var(--color-orange-500);
+    --accent-purple-legacy: var(--color-orange-600);
+  }
+
+  .dark {
+    color-scheme: dark;
+
+    --bg-page: var(--color-gray-900);
+    --bg-surface: var(--color-gray-800);
+    --bg-panel: #0f1624;
+    --bg-subtle: var(--color-gray-800);
+    --bg-muted: var(--color-gray-700);
+    --bg-hover: var(--color-gray-700);
+    --bg-active: var(--color-gray-600);
+    --bg-inverse: var(--color-gray-50);
+
+    --fg-primary: var(--color-gray-50);
+    --fg-secondary: var(--color-gray-200);
+    --fg-muted: var(--color-gray-400);
+    --fg-subtle: var(--color-gray-500);
+    --fg-inverse: var(--color-gray-900);
+
+    --border-default: var(--color-gray-700);
+    --border-muted: var(--color-gray-600);
+    --border-strong: var(--color-gray-500);
+
+    --accent: var(--color-orange-400);
+    --accent-hover: var(--color-orange-500);
+    --accent-subtle: var(--color-orange-900);
+    --accent-fg: var(--color-orange-200);
+
+    /* Legacy surface values for dark mode */
+    --surface-primary: var(--bg-page);
+    --surface-secondary: var(--bg-surface);
+    --surface-sidebar: var(--bg-surface);
+    --surface-card: var(--bg-surface);
+    --surface-hover: var(--bg-hover);
+    --surface-border: var(--border-default);
+    --text-primary: var(--fg-primary);
+    --text-secondary: var(--fg-secondary);
+    --text-muted: var(--fg-muted);
+    --accent-blue-legacy: var(--color-orange-400);
+    --accent-purple-legacy: var(--color-orange-500);
+
+    --success: var(--color-green-400);
+    --success-subtle: var(--color-green-900);
+    --success-fg: var(--color-green-200);
+    --warning: var(--color-yellow-400);
+    --warning-subtle: var(--color-yellow-900);
+    --warning-fg: var(--color-yellow-200);
+    --danger: var(--color-red-400);
+    --danger-subtle: var(--color-red-900);
+    --danger-fg: var(--color-red-200);
+    --info: var(--color-blue-500);
+    --info-subtle: var(--color-blue-900);
+    --info-fg: var(--color-blue-300);
+  }
+
+  html,
+  body {
+    background-color: var(--bg-page);
+    color: var(--fg-primary);
+    font-family: var(--font-sans);
+    font-size: 14px;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
 }
 
-/* Scrollbar styling */
+/* ──────────────────────────────────────────────────────────────────
+ * Expose semantic tokens as Tailwind utilities via @theme inline.
+ * This makes `bg-page`, `bg-surface`, `text-fg-primary`, etc. work.
+ * ────────────────────────────────────────────────────────────────── */
+@theme inline {
+  --color-bg-page: var(--bg-page);
+  --color-bg-surface: var(--bg-surface);
+  --color-bg-panel: var(--bg-panel);
+  --color-bg-subtle: var(--bg-subtle);
+  --color-bg-muted: var(--bg-muted);
+  --color-bg-hover: var(--bg-hover);
+  --color-bg-active: var(--bg-active);
+  --color-bg-inverse: var(--bg-inverse);
+
+  --color-fg-primary: var(--fg-primary);
+  --color-fg-secondary: var(--fg-secondary);
+  --color-fg-muted: var(--fg-muted);
+  --color-fg-subtle: var(--fg-subtle);
+  --color-fg-inverse: var(--fg-inverse);
+
+  --color-border-default: var(--border-default);
+  --color-border-muted: var(--border-muted);
+  --color-border-strong: var(--border-strong);
+
+  --color-accent: var(--accent);
+  --color-accent-hover: var(--accent-hover);
+  --color-accent-subtle: var(--accent-subtle);
+  --color-accent-fg: var(--accent-fg);
+
+  --color-success: var(--success);
+  --color-success-subtle: var(--success-subtle);
+  --color-success-fg: var(--success-fg);
+  --color-warning: var(--warning);
+  --color-warning-subtle: var(--warning-subtle);
+  --color-warning-fg: var(--warning-fg);
+  --color-danger: var(--danger);
+  --color-danger-subtle: var(--danger-subtle);
+  --color-danger-fg: var(--danger-fg);
+  --color-info: var(--info);
+  --color-info-subtle: var(--info-subtle);
+  --color-info-fg: var(--info-fg);
+
+  /* Status (session states) */
+  --color-status-active: var(--color-green-500);
+  --color-status-idle: var(--color-gray-400);
+  --color-status-running: var(--color-yellow-500);
+  --color-status-terminated: var(--color-red-500);
+  --color-status-rescheduling: var(--color-orange-400);
+
+  /* ── Back-compat aliases for previously used class names ─────── */
+  /* These resolve to the current theme's semantic tokens via the
+     `--surface-*` / `--text-*` CSS variables declared in :root/.dark */
+  --color-surface-primary: var(--surface-primary);
+  --color-surface-secondary: var(--surface-secondary);
+  --color-surface-sidebar: var(--surface-sidebar);
+  --color-surface-card: var(--surface-card);
+  --color-surface-hover: var(--surface-hover);
+  --color-surface-border: var(--surface-border);
+
+  --color-text-primary: var(--text-primary);
+  --color-text-secondary: var(--text-secondary);
+  --color-text-muted: var(--text-muted);
+
+  --color-accent-blue: var(--accent-blue-legacy);
+  --color-accent-purple: var(--accent-purple-legacy);
+}
+
+/* ──────────────────────────────────────────────────────────────────
+ * Scrollbar (thin, unobtrusive)
+ * ────────────────────────────────────────────────────────────────── */
 ::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
+  width: 8px;
+  height: 8px;
 }
-
 ::-webkit-scrollbar-track {
   background: transparent;
 }
-
 ::-webkit-scrollbar-thumb {
-  background: #333;
-  border-radius: 3px;
+  background: var(--color-gray-300);
+  border-radius: 8px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--color-gray-375);
+}
+.dark ::-webkit-scrollbar-thumb {
+  background: var(--color-gray-700);
+}
+.dark ::-webkit-scrollbar-thumb:hover {
+  background: var(--color-gray-600);
 }
 
-::-webkit-scrollbar-thumb:hover {
-  background: #444;
+/* ──────────────────────────────────────────────────────────────────
+ * Reusable glass panel (matches LangWatch dialog/menu backdrop-blur)
+ * ────────────────────────────────────────────────────────────────── */
+.glass-panel {
+  background-color: color-mix(in srgb, var(--bg-panel) 85%, transparent);
+  backdrop-filter: blur(12px) saturate(1.2);
+  -webkit-backdrop-filter: blur(12px) saturate(1.2);
+  border: 1px solid var(--border-muted);
+}
+
+.glass-menu {
+  background-color: color-mix(in srgb, var(--bg-panel) 75%, transparent);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  border: 1px solid var(--border-muted);
 }
