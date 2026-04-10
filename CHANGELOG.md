@@ -20,15 +20,15 @@ All notable changes to this project are documented here. Format follows [Keep a 
   - **docker-compose** — validates `docker-compose.yml` parses with `docker compose config -q` and checks all expected services are declared.
 
 #### Tests
-Started this cycle at zero server/cli tests. Ended at **205 total**:
+Started this cycle at zero server/cli tests. Ended at **218 total**:
 
 | Package | Files | Tests |
 |---|:---:|:---:|
-| `@open-managed-agents/server` | 14 | 110 |
+| `@open-managed-agents/server` | 15 | 123 |
 | `@open-managed-agents/web` | 12 | 88 |
 | `@open-managed-agents/cli` | 1 | 5 |
 | `@open-managed-agents/scenario-tests` | 1 | 2 |
-| **Total** | **28** | **205** |
+| **Total** | **29** | **218** |
 
 Each new test file has a sibling `specs/*.feature` documenting the scenarios in Gherkin.
 
@@ -57,6 +57,7 @@ Each new test file has a sibling `specs/*.feature` documenting the scenarios in 
 - The final `CMD`/`EXPOSE` surface is unchanged so `docker-compose.yml` and the Helm chart keep working. `docker compose config -q` remains clean.
 
 #### Features
+- **Global auth guard middleware** — new `packages/server/src/middleware/auth-guard.ts` is wired into `createApp()` right after CORS. Every non-public path requires a valid session cookie; public allowlist is `/`, `/health`, `/docs`, `/openapi.json`, `/v1/auth/login`, `/v1/auth/logout`, `/v1/auth/me`, `/v1/auth/sso-providers`. Honors `AUTH_ENABLED=false` as a dev/test opt-out. Bogus cookies are rejected; valid sessions are stashed on the Hono context as `c.get("user")` so downstream handlers skip a second DB lookup.
 - **SSO provider discovery** — `GET /v1/auth/sso-providers` returns each org's configured SSO provider + `login_url` so a login UI can render "Sign in with Okta / Google / …" buttons. The raw `sso_config` blob (which may contain secret fields like `client_secret_env`) is deliberately never exposed.
 - **Team-scoped provider access enforcement** — `POST /v1/sessions` now calls `canUseProvider()` and returns 403 if the caller is not on a team with an enabled `team_provider_access` row for the agent's provider. Admins bypass (no lockout).
 - **Team-scoped MCP connector enforcement** — same flow via `canUseConnector()`. Default-allow semantics (no policy row = allowed) to keep existing installs backward-compatible; `blocked` or `requires_approval` in any of the caller's team memberships denies with 403 naming the offending connector.
@@ -74,8 +75,13 @@ Each new test file has a sibling `specs/*.feature` documenting the scenarios in 
 4. **`auditLog()` was declared but never called from any route.** The README's "Full audit logging — track all actions" claim was not backed by code — the `audit_log` table stayed empty regardless of activity. Now wired into every mutation across agents, sessions, environments, providers, vaults, credentials, and governance CRUD via a `currentUserId(c)` helper. Caught by `server/audit-auto.test.ts`.
 5. **`team_provider_access` was persisted but never enforced.** Rows were created/read/updated via the governance APIs but nothing ever consulted them at request time — any authenticated user could create a session against any provider. `POST /v1/sessions` now calls `canUseProvider()` and returns 403 if the caller has no team membership with an enabled grant. Caught by `server/provider-access.test.ts`.
 6. **`team_mcp_policies` was persisted but never enforced.** Same shape as gap #5 on the MCP connector side — the README's "Per-team allow/block" claim was metadata only. Session create now iterates the agent's `mcp_servers` and calls `canUseConnector()` per connector (default-allow for backward compat, `blocked` or `requires_approval` in any team denies). Caught by the MCP-enforcement cases in `server/provider-access.test.ts`.
+7. **The entire auth system was a no-op — the biggest gap this session closed.** `AUTH_ENABLED` was read by test files but no server code ever consulted it, and no middleware existed to gate routes on a session cookie. Every route was publicly reachable as long as the port was — anyone could list agents, read the audit log, create credentials, or pull vault secrets, despite the README prominently promising auth + RBAC + vaults with secrets. Fixed by adding `middleware/auth-guard.ts` wired into `createApp()` with a minimal public-path allowlist, and covered by a new `auth-guard.test.ts` with 12 cases proving every private route 401s without a cookie and unlocks with a valid session.
 
 ### Fixed (quality)
+- `GET /v1/audit-log` now parses the `details` JSON blob at the listing boundary (consistent with how agents/sessions return their JSON columns as objects). The OpenAPI schema was also updated from `string` to `z.record(z.unknown()).nullable()` so generated clients see the right shape. Malformed blobs degrade to `null` rather than crashing the list.
+- `nginx.conf` now proxies `/health`, `/docs`, and `/openapi.json` to the backend. Previously the SPA fallback caught these, silently returning the React index.html with status 200 — a false-positive uptime check for any monitor hitting the web tier instead of the API server. Also bumped `proxy_read_timeout` to 1h on `/v1/` so long SSE streams during agent runs don't get killed by nginx's default 60s read timeout.
+- Dockerfile HEALTHCHECK, CI `sqlite-smoke` wait loop, and `scripts/cli-smoke-test.sh` server-reachability probe all now agree on `/health` — the same path the Helm chart's liveness/readiness probes hit.
+- Both Dockerfiles are now multi-stage (server drops dev-deps via `pnpm deploy --prod` for a significantly smaller runtime image), run under a non-root user, and ship a curl-based `HEALTHCHECK`.
 - `packages/server/tsconfig.json` and `packages/cli/tsconfig.json` now `exclude` `src/__tests__` and `*.test.ts` — tests used to be shipped in the production `dist/`.
 - `scripts/cli-smoke-test.sh` creates an agent before asserting JSON output, so it works against a fresh empty DB (the exact scenario the CI `sqlite-smoke` job exercises).
 - `packages/scenario-tests/src/agent-creation.scenario.test.ts` now uses a system prompt that encourages clarifying questions for ambiguous openers. The previous prompt ("give clear, direct, accurate answers") made the multi-turn dialogue scenario fail the judge.
