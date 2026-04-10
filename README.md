@@ -28,26 +28,36 @@
 </p>
 
 <p align="center">
-  <img src="docs/screenshots/03-agent-created.png" alt="Building an agent in Open Managed Agents" width="100%" />
+  <img src="docs/screenshots/quickstart-qa-03-done.png" alt="Building an agent in Open Managed Agents" width="100%" />
 </p>
 
 ---
 
 ## Why Open Managed Agents?
 
-Claude Managed Agents is great — but it's locked to Anthropic's cloud, Anthropic's models, and Anthropic's access controls. **Open Managed Agents** gives you the same experience with:
+Anthropic's Claude Managed Agents is a great product, but it's locked to Anthropic's cloud, Anthropic's models, and Anthropic's access controls. If you work somewhere with a **"no data leaves our infrastructure"** policy, a **multi-provider strategy**, a **compliance team**, or an **air-gapped environment**, you can't use it at all.
+
+Open Managed Agents ships the same experience — same builder, same templates, same 1:1 API — but runs on your own infrastructure and against any LLM you want.
+
+**Who this is for:**
+- Platform teams who want a self-hosted agent runtime their whole org can share
+- Companies that can't ship customer data to a third-party agent platform
+- Teams experimenting with local/open models (Llama, Qwen, Mistral via Ollama)
+- Anyone who wants to avoid vendor lock-in on the agent layer
 
 | | Claude Managed Agents | Open Managed Agents |
 |---|:---:|:---:|
-| **Self-hosted** | No | Yes |
-| **Multi-LLM** (Anthropic, OpenAI, Ollama, etc.) | No | Yes |
-| **Org/Team/Project hierarchy** | Limited | Full RBAC |
-| **API key governance per team** | No | Yes |
-| **MCP integration policies** | No | Per-team allow/block |
-| **Infra-as-code config** | No | JSON/YAML governance file |
-| **Helm chart** | N/A | Included |
-| **Audit logging** | Limited | Full |
-| **Local/air-gapped deployment** | No | Yes (Ollama) |
+| **Self-hosted** (Docker, Helm, your cloud) | No | Yes |
+| **Multi-LLM** — 7 providers | Anthropic only | Anthropic, OpenAI, Google, Mistral, Groq, any OpenAI-compatible, Ollama |
+| **Local / air-gapped** | No | Yes (Ollama, vLLM, LM Studio, …) |
+| **Org / Team / Project hierarchy** | Limited | Full RBAC with admin/member/viewer |
+| **Per-team LLM provider access control** | No | Yes |
+| **Per-team MCP allow / block / require-approval** | No | Yes |
+| **Infrastructure-as-code config** | No | JSON governance file loaded on boot |
+| **Helm chart** | N/A | Included (sqlite + embedded + external postgres modes) |
+| **Full audit log** | Limited | Every mutation logged with user + resource + details |
+| **Encrypted credential vaults** | N/A | AES-256-GCM at rest |
+| **OSS license** | Proprietary | Apache-2.0 |
 
 ## Features
 
@@ -105,59 +115,84 @@ GitHub Actions runs typecheck + tests + build + helm-lint on every PR, plus a sm
 
 ## Quickstart
 
-### Prerequisites
-- Node.js 22+
-- pnpm 10+
+### Self-host in 60 seconds (Docker Compose)
 
-### Setup
+The fastest path — production-ish stack with Postgres, the API server, the web UI, and nginx in one command. No Node.js, no pnpm, nothing to install locally.
 
 ```bash
 git clone https://github.com/langwatch/open-managed-agents.git
 cd open-managed-agents
-pnpm install
 
-# Add at least one LLM provider API key
+# Add at least one LLM provider key (or none, to use local Ollama)
 cp .env.example .env
-# Edit .env with your keys:
-#   ANTHROPIC_API_KEY=sk-ant-...
-#   OPENAI_API_KEY=sk-proj-...
+# Edit .env: ANTHROPIC_API_KEY=sk-ant-... OR OPENAI_API_KEY=sk-proj-... OR
+#            GOOGLE_GENERATIVE_AI_API_KEY=... OR MISTRAL_API_KEY=...
+#            OR GROQ_API_KEY=... — any one is enough
 
-# Start development servers
-pnpm dev
+docker compose up -d
 ```
 
-Open http://localhost:5173 and follow the Quickstart wizard.
+That's it. Now open:
+
+- **Web UI:**   http://localhost:5173 (log in as `admin@localhost` / see `OMA_DEFAULT_ADMIN_PASSWORD`)
+- **API:**      http://localhost:3001
+- **Swagger:**  http://localhost:3001/docs
+
+The stack is a [multi-stage](Dockerfile.server) non-root server image with a curl HEALTHCHECK, plus a [Postgres](docker-compose.yml) container with a persistent volume. For SQLite instead of Postgres, set `DATABASE_PATH=/app/data/oma.db` and drop the `postgres` service.
+
+### Run on Kubernetes (Helm)
+
+```bash
+helm install oma ./helm/open-managed-agents \
+  --set env.ANTHROPIC_API_KEY=sk-ant-... \
+  --set database.type=postgres \
+  --set database.postgres.embedded=true
+```
+
+The chart ships with three supported database modes: **sqlite** (PVC-backed), **embedded postgres** (StatefulSet), and **external postgres** (DATABASE_URL in a Secret). All three are validated on every CI run. See [`helm/open-managed-agents`](helm/open-managed-agents).
+
+### Local dev setup
+
+If you want to hack on the code instead:
+
+```bash
+pnpm install
+cp .env.example .env   # add your keys
+pnpm dev               # server on :3001, web on :5173
+```
+
+Prereqs: Node.js 22+, pnpm 10+.
 
 ## Screenshots
 
 <table>
   <tr>
     <td width="50%">
-      <img src="docs/screenshots/02-quickstart-templates.png" alt="Quickstart with pre-built templates" />
-      <p align="center"><strong>Quickstart wizard</strong> — pick from 10 templates or start from scratch</p>
+      <img src="docs/screenshots/quickstart-qa-01-empty.png" alt="Quickstart with chat on the left and templates on the right" />
+      <p align="center"><strong>Quickstart</strong> — chat with the agent builder on the left, browse templates on the right</p>
     </td>
     <td width="50%">
-      <img src="docs/screenshots/03-agent-created.png" alt="Agent builder with MCP connectors" />
-      <p align="center"><strong>Agent builder</strong> — YAML/JSON config, curl/Python/TS snippets, MCP connectors</p>
-    </td>
-  </tr>
-  <tr>
-    <td width="50%">
-      <img src="docs/screenshots/08-session-transcript.png" alt="Live session transcript with markdown" />
-      <p align="center"><strong>Session transcript</strong> — live SSE streaming, rich markdown, token counter</p>
-    </td>
-    <td width="50%">
-      <img src="docs/screenshots/09-session-debug.png" alt="Debug view showing every event" />
-      <p align="center"><strong>Debug view</strong> — every span, tool call, and status change with timing</p>
+      <img src="docs/screenshots/quickstart-qa-02-draft.png" alt="Draft agent preview with connectors" />
+      <p align="center"><strong>Agent builder chat</strong> — real LLM round trip, YAML/JSON draft preview, connector pills</p>
     </td>
   </tr>
   <tr>
     <td width="50%">
-      <img src="docs/screenshots/05-settings-providers.png" alt="LLM provider management" />
-      <p align="center"><strong>LLM providers</strong> — Anthropic, OpenAI, Ollama, any OpenAI-compatible API</p>
+      <img src="docs/screenshots/qa-sweep/03-agents.png" alt="Agents list" />
+      <p align="center"><strong>Agents</strong> — create, version, archive; full CRUD via REST + CLI</p>
     </td>
     <td width="50%">
-      <img src="docs/screenshots/07-usage-cost.png" alt="Usage and cost analytics" />
+      <img src="docs/screenshots/qa-sweep/04-sessions.png" alt="Sessions list" />
+      <p align="center"><strong>Sessions</strong> — trace + debug every turn, tool call, and token</p>
+    </td>
+  </tr>
+  <tr>
+    <td width="50%">
+      <img src="docs/screenshots/qa-sweep/08-settings.png" alt="LLM provider management" />
+      <p align="center"><strong>LLM providers</strong> — Anthropic, OpenAI, Google, Mistral, Groq, Ollama, any OpenAI-compatible</p>
+    </td>
+    <td width="50%">
+      <img src="docs/screenshots/qa-sweep/07-usage.png" alt="Usage and cost analytics" />
       <p align="center"><strong>Usage &amp; cost</strong> — tokens and spend broken down by provider and agent</p>
     </td>
   </tr>
@@ -257,38 +292,42 @@ curl http://localhost:3001/v1/audit-log
 
 ## Self-Hosting
 
-### Docker Compose
+For the basic deployment commands see [Quickstart](#quickstart) above. This section covers the knobs you'll want to tune for a real deployment.
 
-```bash
-docker-compose up
-# Web UI: http://localhost:5173
-# API:    http://localhost:3001
-# Docs:   http://localhost:3001/docs
-```
-
-### Helm Chart (Kubernetes)
-
-```bash
-helm install oma ./helm/open-managed-agents \
-  --set server.env.ANTHROPIC_API_KEY=$ANTHROPIC_API_KEY \
-  --set ingress.enabled=true \
-  --set ingress.host=agents.your-company.com
-```
-
-See `helm/open-managed-agents/values.yaml` for all configuration options.
-
-### Environment Variables
+### Environment variables
 
 | Variable | Required | Default | Description |
 |---|---|---|---|
-| `ANTHROPIC_API_KEY` | No* | — | Anthropic API key (auto-creates provider) |
-| `OPENAI_API_KEY` | No* | — | OpenAI API key (auto-creates provider) |
-| `DATABASE_PATH` | No | `data/oma.db` | SQLite database path |
+| `ANTHROPIC_API_KEY` | ⭐ any one | — | Anthropic API key — auto-seeds a provider row at boot |
+| `OPENAI_API_KEY` | ⭐ any one | — | OpenAI API key — auto-seeds a provider row |
+| `GOOGLE_GENERATIVE_AI_API_KEY` | ⭐ any one | — | Google Gemini API key — auto-seeds a provider row |
+| `MISTRAL_API_KEY` | ⭐ any one | — | Mistral API key — auto-seeds a provider row |
+| `GROQ_API_KEY` | ⭐ any one | — | Groq API key — auto-seeds a provider row |
+| `OMA_SEED_OLLAMA` | No | `true` if no other key | If `true`, auto-seeds an Ollama provider pointing at `http://localhost:11434/v1` — zero-config local-LLM path |
+| `DATABASE_URL` | No | — | Postgres connection string. When set, Postgres is used instead of SQLite |
+| `DATABASE_PATH` | No | `data/oma.db` | SQLite database path (used when `DATABASE_URL` is not set) |
 | `PORT` | No | `3001` | Server port |
-| `VAULT_ENCRYPTION_KEY` | No | Auto-generated | AES-256 key for credential encryption |
-| `GOVERNANCE_CONFIG` | No | — | Path to governance config JSON file |
+| `AUTH_ENABLED` | No | `true` | Set to `false` to disable the session cookie guard (dev/test only) |
+| `OMA_DEFAULT_ADMIN_PASSWORD` | No | `admin` | Initial password for `admin@localhost` on fresh installs — **change this in production** |
+| `VAULT_ENCRYPTION_KEY` | No | Auto-generated | 32-byte hex key for AES-256-GCM credential encryption. Auto-generated on first boot and written back to `.env` if missing |
+| `GOVERNANCE_CONFIG` | No | — | Path to a governance JSON file (orgs/teams/projects/policies) loaded on startup |
 
-*At least one LLM provider API key is needed, or configure Ollama for local models.
+⭐ = you need at least one LLM provider configured. Either set one of the API key variables above, or leave them all unset and the server will auto-seed an Ollama provider so you can run fully locally with no cloud credentials.
+
+### Databases
+
+The server supports two database backends with the same schema:
+
+- **SQLite** (default) — `data/oma.db`, zero-config, great for single-node deployments and local dev. Ships in the Helm chart as a PVC-backed volume.
+- **Postgres** — set `DATABASE_URL=postgres://user:pass@host:5432/oma`. The schema auto-migrates on boot. The Helm chart supports both an **embedded** StatefulSet-based Postgres (great for self-contained cluster installs) and **external** Postgres (for RDS / Cloud SQL / Aurora / Supabase / Neon, etc.).
+
+Either backend can be swapped in without code changes — the `DbAdapter` interface normalizes dialect differences (`?` vs `$1..$N` placeholders, datetime defaults, `INSERT ... ON CONFLICT`).
+
+### Governance config (Infra-as-Code)
+
+Set `GOVERNANCE_CONFIG=/path/to/governance.json` and the server will load orgs, teams, projects, memberships, provider access grants, and MCP policies on boot. See [`governance.example.json`](governance.example.json) for the full schema.
+
+This is the pattern for GitOps-style deployments: commit `governance.json` alongside your Helm values, and every `helm upgrade` redeploys the latest access controls in sync with the code change.
 
 ## Architecture
 
