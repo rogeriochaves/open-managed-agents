@@ -362,12 +362,23 @@ class AISDKProvider implements LLMProvider {
           )
         : undefined;
 
+    // OpenAI reasoning models (gpt-5, gpt-5-*, o1, o1-*, o3, o3-*)
+    // reject `temperature` — the Vercel AI SDK emits a loud warning
+    // each request and silently drops the field. Drop it client-side
+    // so reasoning-model runs don't spam the server logs every turn.
+    // Non-reasoning models still get the requested temperature.
+    const isReasoningModel =
+      this.config.type === "openai" &&
+      /^(gpt-5|o1|o3)(-|$)/i.test(modelId);
+
     const result = await generateText({
       model,
       ...(params.system ? { system: params.system } : {}),
       messages,
       ...(params.max_tokens ? { maxOutputTokens: params.max_tokens } : {}),
-      ...(params.temperature != null ? { temperature: params.temperature } : {}),
+      ...(params.temperature != null && !isReasoningModel
+        ? { temperature: params.temperature }
+        : {}),
       ...(toolsMap ? { tools: toolsMap as never } : {}),
     });
 

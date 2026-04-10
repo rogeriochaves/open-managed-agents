@@ -62,6 +62,54 @@ async function loginAndGetCookie(): Promise<string> {
 }
 
 /**
+ * Resolve the server's currently-default provider so the scenario
+ * test can create agents pointed at whichever backend the user has
+ * configured, not a hardcoded Anthropic model. This matters because
+ * running scenario tests against a server whose default provider is
+ * OpenAI + a hardcoded `claude-sonnet-4-6` model ID would 400 at
+ * runtime ("model not found on openai") and make the tests look
+ * broken when they're actually pointing at the wrong provider.
+ */
+async function getDefaultProviderAndModel(
+  cookie: string,
+): Promise<{ providerId: string; model: string }> {
+  const res = await fetch(`${API_BASE}/v1/providers`, {
+    headers: { cookie },
+  });
+  if (!res.ok) {
+    throw new Error(`Failed to list providers: ${res.status}`);
+  }
+  const body = (await res.json()) as {
+    data: Array<{
+      id: string;
+      type: string;
+      is_default: boolean;
+      default_model: string | null;
+      has_api_key: boolean;
+    }>;
+  };
+  const rows = body.data ?? [];
+  // Prefer the explicitly-default row. Fall back to any row that
+  // actually has credentials configured. Fall back to the first row
+  // if nothing else matches.
+  const picked =
+    rows.find((p) => p.is_default) ??
+    rows.find((p) => p.has_api_key) ??
+    rows[0];
+  if (!picked) {
+    throw new Error(
+      "No LLM providers configured on the server — cannot run scenario tests.",
+    );
+  }
+  if (!picked.default_model) {
+    throw new Error(
+      `Provider ${picked.id} has no default_model — configure one under Settings → Providers.`,
+    );
+  }
+  return { providerId: picked.id, model: picked.default_model };
+}
+
+/**
  * Adapter that wraps the Open Managed Agents HTTP API as a Scenario agent.
  * Each call creates a fresh agent+session for clean scenario isolation,
  * then sends the user's message and polls for the agent's response.
@@ -85,13 +133,20 @@ class OpenManagedAgentAdapter extends scenario.AgentAdapter {
     // First user message: create agent and session
     if (!this.sessionId) {
       const headers = await this.authHeaders();
+      // Resolve the default provider + model at runtime so this
+      // scenario test works regardless of whether the dev is
+      // running with Anthropic, OpenAI, or a local Ollama as the
+      // default. Hardcoding "claude-sonnet-4-6" broke the flow
+      // the moment OPENAI_API_KEY landed in .env.
+      const { providerId, model } = await getDefaultProviderAndModel(this.cookie!);
       const agentRes = await fetch(`${API_BASE}/v1/agents`, {
         method: "POST",
         headers,
         body: JSON.stringify({
           name: "scenario-test-agent",
           description: "Agent created by LangWatch Scenario test",
-          model: "claude-sonnet-4-6",
+          model,
+          model_provider_id: providerId,
           system: [
             "You are a helpful assistant.",
             "For clear, well-specified questions give a clear, direct, accurate answer.",
