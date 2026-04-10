@@ -7,6 +7,7 @@ import {
   AgentIdParamSchema,
 } from "../schemas/agents.js";
 import { pageCursorResponse } from "../schemas/common.js";
+import { getDB, newId } from "../db/index.js";
 
 const tags = ["Agents"];
 
@@ -99,42 +100,192 @@ const archiveAgentRoute = createRoute({
   },
 });
 
+// ── Helpers ─────────────────────────────────────────────────────────────────
+
+function rowToAgent(row: any): any {
+  const model =
+    typeof row.model_id === "string"
+      ? { id: row.model_id, speed: row.model_speed ?? "standard" }
+      : row.model_id;
+
+  return {
+    id: row.id,
+    type: "agent" as const,
+    name: row.name,
+    description: row.description ?? null,
+    system: row.system ?? null,
+    model,
+    model_provider_id: row.model_provider_id ?? null,
+    tools: JSON.parse(row.tools ?? "[]"),
+    mcp_servers: JSON.parse(row.mcp_servers ?? "[]"),
+    skills: JSON.parse(row.skills ?? "[]"),
+    metadata: JSON.parse(row.metadata ?? "{}"),
+    version: row.version,
+    created_at: row.created_at,
+    updated_at: row.updated_at,
+    archived_at: row.archived_at ?? null,
+  };
+}
+
 // ── Register routes ─────────────────────────────────────────────────────────
 
 export function registerAgentRoutes(app: OpenAPIHono) {
   app.openapi(createAgentRoute, async (c) => {
-    const body = c.req.valid("json");
-    const client = c.get("anthropic" as never) as any;
-    const result = await client.beta.agents.create(body);
-    return c.json(result as any, 200);
+    const body = c.req.valid("json") as any;
+    const db = getDB();
+    const id = newId("agent");
+    const now = new Date().toISOString();
+
+    const modelId =
+      typeof body.model === "string" ? body.model : body.model?.id ?? "claude-sonnet-4-6";
+    const modelSpeed =
+      typeof body.model === "object" ? body.model?.speed ?? "standard" : "standard";
+    const modelProviderId = body.model_provider_id ?? null;
+
+    db.prepare(`
+      INSERT INTO agents (id, name, description, system, model_id, model_speed, model_provider_id, tools, mcp_servers, skills, metadata, version, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)
+    `).run(
+      id,
+      body.name,
+      body.description ?? null,
+      body.system ?? null,
+      modelId,
+      modelSpeed,
+      modelProviderId,
+      JSON.stringify(body.tools ?? []),
+      JSON.stringify(body.mcp_servers ?? []),
+      JSON.stringify(body.skills ?? []),
+      JSON.stringify(body.metadata ?? {}),
+      now,
+      now
+    );
+
+    const row = db.prepare("SELECT * FROM agents WHERE id = ?").get(id);
+    return c.json(rowToAgent(row), 200);
   });
 
   app.openapi(retrieveAgentRoute, async (c) => {
     const { agentId } = c.req.valid("param");
-    const client = c.get("anthropic" as never) as any;
-    const result = await client.beta.agents.retrieve(agentId);
-    return c.json(result as any, 200);
+    const db = getDB();
+    const row = db.prepare("SELECT * FROM agents WHERE id = ?").get(agentId);
+
+    if (!row) {
+      throw Object.assign(new Error(`Agent ${agentId} not found`), { status: 404, type: "not_found" });
+    }
+
+    return c.json(rowToAgent(row), 200);
   });
 
   app.openapi(updateAgentRoute, async (c) => {
     const { agentId } = c.req.valid("param");
-    const body = c.req.valid("json");
-    const client = c.get("anthropic" as never) as any;
-    const result = await client.beta.agents.update(agentId, body);
-    return c.json(result as any, 200);
+    const body = c.req.valid("json") as any;
+    const db = getDB();
+
+    const existing = db.prepare("SELECT * FROM agents WHERE id = ?").get(agentId) as any;
+    if (!existing) {
+      throw Object.assign(new Error(`Agent ${agentId} not found`), { status: 404, type: "not_found" });
+    }
+
+    const updates: string[] = [];
+    const values: any[] = [];
+
+    if (body.name !== undefined) {
+      updates.push("name = ?");
+      values.push(body.name);
+    }
+    if (body.description !== undefined) {
+      updates.push("description = ?");
+      values.push(body.description);
+    }
+    if (body.system !== undefined) {
+      updates.push("system = ?");
+      values.push(body.system);
+    }
+    if (body.model !== undefined) {
+      const modelId = typeof body.model === "string" ? body.model : body.model?.id;
+      const modelSpeed = typeof body.model === "object" ? body.model?.speed : undefined;
+      if (modelId) { updates.push("model_id = ?"); values.push(modelId); }
+      if (modelSpeed) { updates.push("model_speed = ?"); values.push(modelSpeed); }
+    }
+    if (body.tools !== undefined) {
+      updates.push("tools = ?");
+      values.push(JSON.stringify(body.tools));
+    }
+    if (body.mcp_servers !== undefined) {
+      updates.push("mcp_servers = ?");
+      values.push(JSON.stringify(body.mcp_servers));
+    }
+    if (body.skills !== undefined) {
+      updates.push("skills = ?");
+      values.push(JSON.stringify(body.skills));
+    }
+    if (body.metadata !== undefined) {
+      const existingMeta = JSON.parse(existing.metadata ?? "{}");
+      const merged = { ...existingMeta, ...body.metadata };
+      // Remove null values
+      for (const [k, v] of Object.entries(merged)) {
+        if (v === null) delete merged[k];
+      }
+      updates.push("metadata = ?");
+      values.push(JSON.stringify(merged));
+    }
+
+    updates.push("version = version + 1");
+    updates.push("updated_at = datetime('now')");
+    values.push(agentId);
+
+    db.prepare(`UPDATE agents SET ${updates.join(", ")} WHERE id = ?`).run(...values);
+
+    const row = db.prepare("SELECT * FROM agents WHERE id = ?").get(agentId);
+    return c.json(rowToAgent(row), 200);
   });
 
   app.openapi(listAgentsRoute, async (c) => {
-    const query = c.req.valid("query");
-    const client = c.get("anthropic" as never) as any;
-    const result = await client.beta.agents.list(query);
-    return c.json(result as any, 200);
+    const query = c.req.valid("query") as any;
+    const db = getDB();
+
+    const conditions: string[] = [];
+    const values: any[] = [];
+
+    if (!query.include_archived) {
+      conditions.push("archived_at IS NULL");
+    }
+
+    const where = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
+    const limit = Math.min(query.limit ?? 20, 100);
+
+    const rows = db
+      .prepare(`SELECT * FROM agents ${where} ORDER BY created_at DESC LIMIT ?`)
+      .all(...values, limit + 1) as any[];
+
+    const hasMore = rows.length > limit;
+    const data = rows.slice(0, limit).map(rowToAgent);
+
+    return c.json(
+      {
+        data,
+        has_more: hasMore,
+        first_id: data[0]?.id ?? null,
+        last_id: data[data.length - 1]?.id ?? null,
+      },
+      200
+    );
   });
 
   app.openapi(archiveAgentRoute, async (c) => {
     const { agentId } = c.req.valid("param");
-    const client = c.get("anthropic" as never) as any;
-    const result = await client.beta.agents.archive(agentId);
-    return c.json(result as any, 200);
+    const db = getDB();
+
+    db.prepare(
+      "UPDATE agents SET archived_at = datetime('now'), updated_at = datetime('now') WHERE id = ?"
+    ).run(agentId);
+
+    const row = db.prepare("SELECT * FROM agents WHERE id = ?").get(agentId);
+    if (!row) {
+      throw Object.assign(new Error(`Agent ${agentId} not found`), { status: 404, type: "not_found" });
+    }
+
+    return c.json(rowToAgent(row), 200);
   });
 }

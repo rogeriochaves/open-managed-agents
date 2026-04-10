@@ -8,165 +8,149 @@ import {
   EnvironmentDeleteResponseSchema,
 } from "../schemas/environments.js";
 import { pageCursorResponse } from "../schemas/common.js";
+import { getDB, newId } from "../db/index.js";
 
 const tags = ["Environments"];
 
-// ── Route definitions ───────────────────────────────────────────────────────
-
 const createEnvironmentRoute = createRoute({
-  method: "post",
-  path: "/v1/environments",
-  tags,
-  summary: "Create an environment",
-  request: {
-    body: {
-      content: {
-        "application/json": { schema: EnvironmentCreateBodySchema },
-      },
-    },
-  },
-  responses: {
-    200: {
-      description: "The created environment",
-      content: { "application/json": { schema: EnvironmentSchema } },
-    },
-  },
+  method: "post", path: "/v1/environments", tags, summary: "Create an environment",
+  request: { body: { content: { "application/json": { schema: EnvironmentCreateBodySchema } } } },
+  responses: { 200: { description: "The created environment", content: { "application/json": { schema: EnvironmentSchema } } } },
 });
-
 const retrieveEnvironmentRoute = createRoute({
-  method: "get",
-  path: "/v1/environments/{environmentId}",
-  tags,
-  summary: "Retrieve an environment",
-  request: {
-    params: EnvironmentIdParamSchema,
-  },
-  responses: {
-    200: {
-      description: "The environment",
-      content: { "application/json": { schema: EnvironmentSchema } },
-    },
-  },
+  method: "get", path: "/v1/environments/{environmentId}", tags, summary: "Retrieve an environment",
+  request: { params: EnvironmentIdParamSchema },
+  responses: { 200: { description: "The environment", content: { "application/json": { schema: EnvironmentSchema } } } },
 });
-
 const updateEnvironmentRoute = createRoute({
-  method: "post",
-  path: "/v1/environments/{environmentId}",
-  tags,
-  summary: "Update an environment",
-  request: {
-    params: EnvironmentIdParamSchema,
-    body: {
-      content: {
-        "application/json": { schema: EnvironmentUpdateBodySchema },
-      },
-    },
-  },
-  responses: {
-    200: {
-      description: "The updated environment",
-      content: { "application/json": { schema: EnvironmentSchema } },
-    },
-  },
+  method: "post", path: "/v1/environments/{environmentId}", tags, summary: "Update an environment",
+  request: { params: EnvironmentIdParamSchema, body: { content: { "application/json": { schema: EnvironmentUpdateBodySchema } } } },
+  responses: { 200: { description: "The updated environment", content: { "application/json": { schema: EnvironmentSchema } } } },
 });
-
 const listEnvironmentsRoute = createRoute({
-  method: "get",
-  path: "/v1/environments",
-  tags,
-  summary: "List environments",
-  request: {
-    query: EnvironmentListQuerySchema,
-  },
-  responses: {
-    200: {
-      description: "A paginated list of environments",
-      content: {
-        "application/json": {
-          schema: pageCursorResponse(EnvironmentSchema),
-        },
-      },
-    },
-  },
+  method: "get", path: "/v1/environments", tags, summary: "List environments",
+  request: { query: EnvironmentListQuerySchema },
+  responses: { 200: { description: "A paginated list of environments", content: { "application/json": { schema: pageCursorResponse(EnvironmentSchema) } } } },
 });
-
 const deleteEnvironmentRoute = createRoute({
-  method: "delete",
-  path: "/v1/environments/{environmentId}",
-  tags,
-  summary: "Delete an environment",
-  request: {
-    params: EnvironmentIdParamSchema,
-  },
-  responses: {
-    200: {
-      description: "Confirmation of deletion",
-      content: {
-        "application/json": { schema: EnvironmentDeleteResponseSchema },
+  method: "delete", path: "/v1/environments/{environmentId}", tags, summary: "Delete an environment",
+  request: { params: EnvironmentIdParamSchema },
+  responses: { 200: { description: "Confirmation", content: { "application/json": { schema: EnvironmentDeleteResponseSchema } } } },
+});
+const archiveEnvironmentRoute = createRoute({
+  method: "post", path: "/v1/environments/{environmentId}/archive", tags, summary: "Archive an environment",
+  request: { params: EnvironmentIdParamSchema },
+  responses: { 200: { description: "The archived environment", content: { "application/json": { schema: EnvironmentSchema } } } },
+});
+
+function rowToEnvironment(row: any): any {
+  const networking = JSON.parse(row.networking ?? '{"type":"unrestricted"}');
+  const packages = JSON.parse(row.packages ?? '{}');
+
+  return {
+    id: row.id,
+    type: "environment",
+    name: row.name,
+    description: row.description ?? "",
+    config: {
+      type: "cloud",
+      networking,
+      packages: {
+        apt: packages.apt ?? [],
+        cargo: packages.cargo ?? [],
+        gem: packages.gem ?? [],
+        go: packages.go ?? [],
+        npm: packages.npm ?? [],
+        pip: packages.pip ?? [],
       },
     },
-  },
-});
-
-const archiveEnvironmentRoute = createRoute({
-  method: "post",
-  path: "/v1/environments/{environmentId}/archive",
-  tags,
-  summary: "Archive an environment",
-  request: {
-    params: EnvironmentIdParamSchema,
-  },
-  responses: {
-    200: {
-      description: "The archived environment",
-      content: { "application/json": { schema: EnvironmentSchema } },
-    },
-  },
-});
-
-// ── Register routes ─────────────────────────────────────────────────────────
+    metadata: JSON.parse(row.metadata ?? "{}"),
+    created_at: row.created_at,
+    updated_at: row.updated_at,
+    archived_at: row.archived_at ?? null,
+  };
+}
 
 export function registerEnvironmentRoutes(app: OpenAPIHono) {
   app.openapi(createEnvironmentRoute, async (c) => {
-    const body = c.req.valid("json");
-    const client = c.get("anthropic" as never) as any;
-    const result = await client.beta.environments.create(body);
-    return c.json(result as any, 200);
+    const body = c.req.valid("json") as any;
+    const db = getDB();
+    const id = newId("env");
+    const now = new Date().toISOString();
+
+    const networking = body.config?.networking ?? { type: "unrestricted" };
+    const packages = body.config?.packages ?? {};
+
+    db.prepare(`
+      INSERT INTO environments (id, name, description, networking, packages, metadata, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      id, body.name, body.description ?? "",
+      JSON.stringify(networking), JSON.stringify(packages),
+      JSON.stringify(body.metadata ?? {}), now, now
+    );
+
+    const row = db.prepare("SELECT * FROM environments WHERE id = ?").get(id);
+    return c.json(rowToEnvironment(row), 200);
   });
 
   app.openapi(retrieveEnvironmentRoute, async (c) => {
     const { environmentId } = c.req.valid("param");
-    const client = c.get("anthropic" as never) as any;
-    const result = await client.beta.environments.retrieve(environmentId);
-    return c.json(result as any, 200);
+    const db = getDB();
+    const row = db.prepare("SELECT * FROM environments WHERE id = ?").get(environmentId);
+    if (!row) throw Object.assign(new Error(`Environment ${environmentId} not found`), { status: 404, type: "not_found" });
+    return c.json(rowToEnvironment(row), 200);
   });
 
   app.openapi(updateEnvironmentRoute, async (c) => {
     const { environmentId } = c.req.valid("param");
-    const body = c.req.valid("json");
-    const client = c.get("anthropic" as never) as any;
-    const result = await client.beta.environments.update(environmentId, body);
-    return c.json(result as any, 200);
+    const body = c.req.valid("json") as any;
+    const db = getDB();
+    const updates: string[] = [];
+    const values: any[] = [];
+
+    if (body.name !== undefined) { updates.push("name = ?"); values.push(body.name); }
+    if (body.description !== undefined) { updates.push("description = ?"); values.push(body.description); }
+    if (body.config?.networking !== undefined) { updates.push("networking = ?"); values.push(JSON.stringify(body.config.networking)); }
+    if (body.config?.packages !== undefined) { updates.push("packages = ?"); values.push(JSON.stringify(body.config.packages)); }
+
+    if (updates.length > 0) {
+      updates.push("updated_at = datetime('now')");
+      values.push(environmentId);
+      db.prepare(`UPDATE environments SET ${updates.join(", ")} WHERE id = ?`).run(...values);
+    }
+
+    const row = db.prepare("SELECT * FROM environments WHERE id = ?").get(environmentId);
+    if (!row) throw Object.assign(new Error(`Environment ${environmentId} not found`), { status: 404, type: "not_found" });
+    return c.json(rowToEnvironment(row), 200);
   });
 
   app.openapi(listEnvironmentsRoute, async (c) => {
-    const query = c.req.valid("query");
-    const client = c.get("anthropic" as never) as any;
-    const result = await client.beta.environments.list(query);
-    return c.json(result as any, 200);
+    const query = c.req.valid("query") as any;
+    const db = getDB();
+    const conditions: string[] = [];
+    if (!query.include_archived) conditions.push("archived_at IS NULL");
+    const where = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
+    const limit = Math.min(query.limit ?? 20, 100);
+    const rows = db.prepare(`SELECT * FROM environments ${where} ORDER BY created_at DESC LIMIT ?`).all(limit + 1) as any[];
+    const hasMore = rows.length > limit;
+    const data = rows.slice(0, limit).map(rowToEnvironment);
+    return c.json({ data, has_more: hasMore, first_id: data[0]?.id ?? null, last_id: data[data.length - 1]?.id ?? null }, 200);
   });
 
   app.openapi(deleteEnvironmentRoute, async (c) => {
     const { environmentId } = c.req.valid("param");
-    const client = c.get("anthropic" as never) as any;
-    const result = await client.beta.environments.del(environmentId);
-    return c.json(result as any, 200);
+    const db = getDB();
+    db.prepare("DELETE FROM environments WHERE id = ?").run(environmentId);
+    return c.json({ id: environmentId, type: "environment_deleted" }, 200);
   });
 
   app.openapi(archiveEnvironmentRoute, async (c) => {
     const { environmentId } = c.req.valid("param");
-    const client = c.get("anthropic" as never) as any;
-    const result = await client.beta.environments.archive(environmentId);
-    return c.json(result as any, 200);
+    const db = getDB();
+    db.prepare("UPDATE environments SET archived_at = datetime('now'), updated_at = datetime('now') WHERE id = ?").run(environmentId);
+    const row = db.prepare("SELECT * FROM environments WHERE id = ?").get(environmentId);
+    if (!row) throw Object.assign(new Error(`Environment ${environmentId} not found`), { status: 404, type: "not_found" });
+    return c.json(rowToEnvironment(row), 200);
   });
 }

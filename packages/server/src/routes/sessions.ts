@@ -8,6 +8,7 @@ import {
   DeletedSessionSchema,
 } from "../schemas/sessions.js";
 import { pageCursorResponse } from "../schemas/common.js";
+import { getDB, newId } from "../db/index.js";
 
 const tags = ["Sessions"];
 
@@ -118,49 +119,189 @@ const archiveSessionRoute = createRoute({
   },
 });
 
+// ── Helpers ─────────────────────────────────────────────────────────────────
+
+function rowToSession(row: any): any {
+  return {
+    id: row.id,
+    type: "session",
+    title: row.title ?? null,
+    agent: JSON.parse(row.agent_snapshot ?? "{}"),
+    environment_id: row.environment_id,
+    status: row.status,
+    resources: JSON.parse(row.resources ?? "[]"),
+    usage: JSON.parse(row.usage ?? "{}"),
+    stats: JSON.parse(row.stats ?? "{}"),
+    metadata: JSON.parse(row.metadata ?? "{}"),
+    vault_ids: JSON.parse(row.vault_ids ?? "[]"),
+    created_at: row.created_at,
+    updated_at: row.updated_at,
+    archived_at: row.archived_at ?? null,
+  };
+}
+
 // ── Register routes ─────────────────────────────────────────────────────────
 
 export function registerSessionRoutes(app: OpenAPIHono) {
   app.openapi(createSessionRoute, async (c) => {
-    const body = c.req.valid("json");
-    const client = c.get("anthropic" as never) as any;
-    const result = await client.beta.sessions.create(body);
-    return c.json(result as any, 200);
+    const body = c.req.valid("json") as any;
+    const db = getDB();
+    const id = newId("session");
+    const now = new Date().toISOString();
+
+    // Resolve agent
+    const agentId = typeof body.agent === "string" ? body.agent : body.agent?.id;
+    const agent = db.prepare("SELECT * FROM agents WHERE id = ?").get(agentId) as any;
+
+    if (!agent) {
+      throw Object.assign(new Error(`Agent ${agentId} not found`), { status: 404, type: "not_found" });
+    }
+
+    // Build agent snapshot
+    const agentSnapshot = {
+      id: agent.id,
+      type: "agent",
+      name: agent.name,
+      description: agent.description,
+      system: agent.system,
+      model: { id: agent.model_id, speed: agent.model_speed ?? "standard" },
+      model_provider_id: agent.model_provider_id ?? null,
+      tools: JSON.parse(agent.tools ?? "[]"),
+      mcp_servers: JSON.parse(agent.mcp_servers ?? "[]"),
+      skills: JSON.parse(agent.skills ?? "[]"),
+      version: agent.version,
+    };
+
+    const environmentId = body.environment_id ?? "env_default";
+
+    db.prepare(`
+      INSERT INTO sessions (id, title, agent_id, agent_snapshot, environment_id, status, resources, metadata, vault_ids, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, 'idle', ?, ?, ?, ?, ?)
+    `).run(
+      id,
+      body.title ?? null,
+      agentId,
+      JSON.stringify(agentSnapshot),
+      environmentId,
+      JSON.stringify(body.resources ?? []),
+      JSON.stringify(body.metadata ?? {}),
+      JSON.stringify(body.vault_ids ?? []),
+      now,
+      now
+    );
+
+    const row = db.prepare("SELECT * FROM sessions WHERE id = ?").get(id);
+    return c.json(rowToSession(row), 200);
   });
 
   app.openapi(retrieveSessionRoute, async (c) => {
     const { sessionId } = c.req.valid("param");
-    const client = c.get("anthropic" as never) as any;
-    const result = await client.beta.sessions.retrieve(sessionId);
-    return c.json(result as any, 200);
+    const db = getDB();
+    const row = db.prepare("SELECT * FROM sessions WHERE id = ?").get(sessionId);
+
+    if (!row) {
+      throw Object.assign(new Error(`Session ${sessionId} not found`), { status: 404, type: "not_found" });
+    }
+
+    return c.json(rowToSession(row), 200);
   });
 
   app.openapi(updateSessionRoute, async (c) => {
     const { sessionId } = c.req.valid("param");
-    const body = c.req.valid("json");
-    const client = c.get("anthropic" as never) as any;
-    const result = await client.beta.sessions.update(sessionId, body);
-    return c.json(result as any, 200);
+    const body = c.req.valid("json") as any;
+    const db = getDB();
+
+    const updates: string[] = [];
+    const values: any[] = [];
+
+    if (body.title !== undefined) {
+      updates.push("title = ?");
+      values.push(body.title);
+    }
+    if (body.metadata !== undefined) {
+      updates.push("metadata = ?");
+      values.push(JSON.stringify(body.metadata));
+    }
+    if (body.vault_ids !== undefined) {
+      updates.push("vault_ids = ?");
+      values.push(JSON.stringify(body.vault_ids));
+    }
+
+    if (updates.length > 0) {
+      updates.push("updated_at = datetime('now')");
+      values.push(sessionId);
+      db.prepare(`UPDATE sessions SET ${updates.join(", ")} WHERE id = ?`).run(...values);
+    }
+
+    const row = db.prepare("SELECT * FROM sessions WHERE id = ?").get(sessionId);
+    if (!row) {
+      throw Object.assign(new Error(`Session ${sessionId} not found`), { status: 404, type: "not_found" });
+    }
+
+    return c.json(rowToSession(row), 200);
   });
 
   app.openapi(listSessionsRoute, async (c) => {
-    const query = c.req.valid("query");
-    const client = c.get("anthropic" as never) as any;
-    const result = await client.beta.sessions.list(query);
-    return c.json(result as any, 200);
+    const query = c.req.valid("query") as any;
+    const db = getDB();
+
+    const conditions: string[] = [];
+    const values: any[] = [];
+
+    if (query.agent_id) {
+      conditions.push("agent_id = ?");
+      values.push(query.agent_id);
+    }
+    if (!query.include_archived) {
+      conditions.push("archived_at IS NULL");
+    }
+
+    const where = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
+    const order = query.order === "asc" ? "ASC" : "DESC";
+    const limit = Math.min(query.limit ?? 20, 100);
+
+    const rows = db
+      .prepare(`SELECT * FROM sessions ${where} ORDER BY created_at ${order} LIMIT ?`)
+      .all(...values, limit + 1) as any[];
+
+    const hasMore = rows.length > limit;
+    const data = rows.slice(0, limit).map(rowToSession);
+
+    return c.json(
+      {
+        data,
+        has_more: hasMore,
+        first_id: data[0]?.id ?? null,
+        last_id: data[data.length - 1]?.id ?? null,
+      },
+      200
+    );
   });
 
   app.openapi(deleteSessionRoute, async (c) => {
     const { sessionId } = c.req.valid("param");
-    const client = c.get("anthropic" as never) as any;
-    const result = await client.beta.sessions.del(sessionId);
-    return c.json(result as any, 200);
+    const db = getDB();
+
+    // Delete events first
+    db.prepare("DELETE FROM events WHERE session_id = ?").run(sessionId);
+    db.prepare("DELETE FROM sessions WHERE id = ?").run(sessionId);
+
+    return c.json({ id: sessionId, type: "session_deleted" }, 200);
   });
 
   app.openapi(archiveSessionRoute, async (c) => {
     const { sessionId } = c.req.valid("param");
-    const client = c.get("anthropic" as never) as any;
-    const result = await client.beta.sessions.archive(sessionId);
-    return c.json(result as any, 200);
+    const db = getDB();
+
+    db.prepare(
+      "UPDATE sessions SET archived_at = datetime('now'), updated_at = datetime('now') WHERE id = ?"
+    ).run(sessionId);
+
+    const row = db.prepare("SELECT * FROM sessions WHERE id = ?").get(sessionId);
+    if (!row) {
+      throw Object.assign(new Error(`Session ${sessionId} not found`), { status: 404, type: "not_found" });
+    }
+
+    return c.json(rowToSession(row), 200);
   });
 }

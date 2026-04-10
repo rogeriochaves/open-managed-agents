@@ -177,6 +177,7 @@ export const AgentSchema = z.object({
   description: z.string().nullable(),
   system: z.string().nullable(),
   model: ModelConfigSchema,
+  model_provider_id: z.string().nullable().optional(),
   tools: z.array(ToolConfigSchema),
   mcp_servers: z.array(MCPServerURLDefinitionSchema),
   skills: z.array(z.discriminatedUnion("type", [AnthropicSkillSchema, CustomSkillSchema])),
@@ -190,6 +191,7 @@ export const AgentSchema = z.object({
 export const AgentCreateBodySchema = z.object({
   name: z.string().min(1).max(256),
   model: z.union([z.string(), ModelConfigParamsSchema]),
+  model_provider_id: z.string().nullable().optional(),
   description: z.string().max(2048).nullable().optional(),
   system: z.string().max(100000).nullable().optional(),
   tools: z.array(ToolConfigParamsSchema).max(128).optional(),
