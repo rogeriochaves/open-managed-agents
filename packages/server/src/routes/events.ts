@@ -10,6 +10,7 @@ import { getDB, newId } from "../db/index.js";
 import { runAgentLoop, createSSEEmitter } from "../engine/index.js";
 import { createProvider } from "../providers/index.js";
 import { getProviderConfig } from "./providers.js";
+import { currentUser } from "../lib/current-user.js";
 
 const tags = ["Events"];
 
@@ -225,6 +226,11 @@ export function registerEventRoutes(app: OpenAPIHono) {
           skills: agentSnapshot.skills ?? [],
         };
 
+        // Resolve the caller's org so the engine can look up stored
+        // MCP credentials scoped to that org.
+        const user = await currentUser(c);
+        const organizationId = user?.organization_id ?? "org_default";
+
         // Run agent loop asynchronously (don't block response)
         const emitter = {
           emit(event: any) {
@@ -233,11 +239,16 @@ export function registerEventRoutes(app: OpenAPIHono) {
           close() {},
         };
 
-        runAgentLoop(sessionId, agentConfig, provider, emitter).catch(
-          (err) => {
-            console.error(`Agent loop failed for session ${sessionId}:`, err);
-          }
-        );
+        runAgentLoop(
+          sessionId,
+          agentConfig,
+          provider,
+          emitter,
+          20,
+          organizationId,
+        ).catch((err) => {
+          console.error(`Agent loop failed for session ${sessionId}:`, err);
+        });
       }
     }
 

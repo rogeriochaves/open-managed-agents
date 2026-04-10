@@ -13,6 +13,12 @@ import type {
   ToolDefinition,
   ChatCompletionChunk,
 } from "../providers/index.js";
+import {
+  loadConnectorToken,
+  listMCPTools,
+  callMCPTool,
+  MCPClientError,
+} from "../lib/mcp-client.js";
 
 export interface AgentConfig {
   name: string;
@@ -62,14 +68,46 @@ const AGENT_TOOLS: ToolDefinition[] = [
 ];
 
 /**
- * Resolves tool definitions from agent config.
+ * A routing table built alongside the tool list: maps the
+ * LLM-facing tool name back to the connector + URL + original
+ * tool name so executeBuiltinTool can call the right MCP server.
  */
-function resolveTools(agentConfig: AgentConfig): ToolDefinition[] {
+interface MCPToolRoute {
+  connectorId: string;
+  url: string;
+  token: string | null;
+  originalName: string;
+}
+
+export interface ResolvedTools {
+  tools: ToolDefinition[];
+  mcpRoutes: Map<string, MCPToolRoute>;
+}
+
+/**
+ * Resolves tool definitions from agent config.
+ *
+ * Built-in + custom tools are returned unchanged. For every entry in
+ * agentConfig.mcp_servers we open a short-lived MCP connection
+ * (StreamableHTTPClientTransport + Bearer from mcp_connections) and
+ * list the server's real tools. Each remote tool is added to the
+ * LLM's tool list with a `__mcp__<connector>__<tool>` prefix and
+ * a matching entry in `mcpRoutes` so callMCPTool() can route a tool
+ * call back to the right server.
+ *
+ * If a connector fails (no token stored, unreachable, 401, …) we log
+ * the reason and skip it. The agent still runs with whatever tools
+ * did resolve rather than erroring out the whole turn.
+ */
+export async function resolveTools(
+  agentConfig: AgentConfig,
+  organizationId: string,
+): Promise<ResolvedTools> {
   const tools: ToolDefinition[] = [];
+  const mcpRoutes = new Map<string, MCPToolRoute>();
 
   for (const tool of agentConfig.tools) {
     if (tool.type === "agent_toolset_20260401") {
-      // Add built-in tools
       tools.push(...AGENT_TOOLS);
     } else if (tool.type === "custom") {
       tools.push({
@@ -80,36 +118,104 @@ function resolveTools(agentConfig: AgentConfig): ToolDefinition[] {
     }
   }
 
-  // Add MCP tools (placeholder - real implementation would connect to MCP servers)
-  for (const mcp of agentConfig.mcp_servers) {
-    tools.push({
-      name: `mcp_${mcp.name}_query`,
-      description: `Query the ${mcp.name} MCP server. Use this to interact with ${mcp.name}.`,
-      input_schema: {
-        type: "object",
-        properties: {
-          action: { type: "string", description: "The action to perform" },
-          params: {
-            type: "object",
-            description: "Parameters for the action",
-          },
-        },
-        required: ["action"],
-      },
-    });
+  for (const mcp of agentConfig.mcp_servers ?? []) {
+    const connectorId = String(mcp.name ?? "");
+    const url = String(mcp.url ?? "");
+    if (!connectorId || !url) continue;
+
+    let token: string | null = null;
+    try {
+      token = await loadConnectorToken(organizationId, connectorId);
+    } catch (err) {
+      console.warn(
+        `[engine] failed to load token for ${connectorId}:`,
+        err instanceof Error ? err.message : err,
+      );
+      continue;
+    }
+
+    try {
+      const remoteTools = await listMCPTools(url, token);
+      for (const t of remoteTools) {
+        const prefixed = `__mcp__${connectorId}__${t.name}`;
+        tools.push({
+          name: prefixed,
+          description: t.description
+            ? `[${connectorId}] ${t.description}`
+            : `[${connectorId}] ${t.name}`,
+          input_schema: t.input_schema,
+        });
+        mcpRoutes.set(prefixed, {
+          connectorId,
+          url,
+          token,
+          originalName: t.name,
+        });
+      }
+    } catch (err) {
+      const msg =
+        err instanceof MCPClientError
+          ? `${err.type}: ${err.message}`
+          : err instanceof Error
+            ? err.message
+            : String(err);
+      console.warn(
+        `[engine] skipping MCP connector ${connectorId} (${url}): ${msg}`,
+      );
+      // Fall through — the agent keeps running with the tools we did
+      // resolve. A degraded-but-working agent is better than a hard
+      // failure mid-turn.
+    }
   }
 
-  return tools;
+  return { tools, mcpRoutes };
 }
 
 /**
  * Execute a built-in tool and return the result.
+ *
+ * If the tool name starts with `__mcp__<connector>__`, it's routed
+ * through the MCP client using the matching route from resolveTools.
  */
 async function executeBuiltinTool(
   name: string,
-  input: Record<string, unknown>
+  input: Record<string, unknown>,
+  mcpRoutes?: Map<string, MCPToolRoute>,
 ): Promise<{ content: string; is_error: boolean }> {
   try {
+    // ── Remote MCP tool ──────────────────────────────────────────
+    if (name.startsWith("__mcp__") && mcpRoutes?.has(name)) {
+      const route = mcpRoutes.get(name)!;
+      try {
+        const result = await callMCPTool(
+          route.url,
+          route.token,
+          route.originalName,
+          input,
+        );
+        const text = (result.content ?? [])
+          .filter((p) => p.type === "text" && typeof p.text === "string")
+          .map((p) => p.text!)
+          .join("\n")
+          .trim();
+        return {
+          content: text || JSON.stringify(result.content ?? []),
+          is_error: result.is_error === true,
+        };
+      } catch (err) {
+        const msg =
+          err instanceof MCPClientError
+            ? `${err.type}: ${err.message}`
+            : err instanceof Error
+              ? err.message
+              : String(err);
+        return {
+          content: `MCP call failed (${route.connectorId}.${route.originalName}): ${msg}`,
+          is_error: true,
+        };
+      }
+    }
+
     if (name === "web_search") {
       // Simple web search implementation
       const query = input.query as string;
@@ -132,12 +238,6 @@ async function executeBuiltinTool(
       } catch (err: any) {
         return { content: `Failed to fetch ${url}: ${err.message}`, is_error: true };
       }
-    }
-    if (name.startsWith("mcp_")) {
-      return {
-        content: `MCP tool ${name} executed with input: ${JSON.stringify(input)}. (MCP server integration pending - connect to real MCP servers for live results.)`,
-        is_error: false,
-      };
     }
 
     return {
@@ -299,9 +399,10 @@ export async function runAgentLoop(
   agentConfig: AgentConfig,
   provider: LLMProvider,
   emitter?: SessionEventEmitter,
-  maxIterations = 20
+  maxIterations = 20,
+  organizationId = "org_default",
 ): Promise<void> {
-  const tools = resolveTools(agentConfig);
+  const { tools, mcpRoutes } = await resolveTools(agentConfig, organizationId);
   let iteration = 0;
 
   // Mark session as running
@@ -403,10 +504,11 @@ export async function runAgentLoop(
           return;
         }
 
-        // Execute built-in tool
+        // Execute built-in or routed-MCP tool
         const toolResult = await executeBuiltinTool(
           toolUse.name!,
-          toolUse.input ?? {}
+          toolUse.input ?? {},
+          mcpRoutes,
         );
 
         // Store tool result
