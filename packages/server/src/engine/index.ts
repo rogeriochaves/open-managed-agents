@@ -561,11 +561,21 @@ export async function runAgentLoop(
     });
     emitter?.emit(errorEvent);
 
-    await updateSessionStatus(sessionId, "idle");
-    const idleEvent = await storeEvent(sessionId, "session.status_idle", {
-      stop_reason: { type: "end_turn" },
-    });
-    emitter?.emit(idleEvent);
+    // Mark the session terminated — NOT idle. The previous
+    // behavior ran updateSessionStatus(..., "idle") + emitted
+    // session.status_idle with stop_reason end_turn, which made
+    // a failed session indistinguishable from a successful one
+    // in the UI (same green "idle" badge, same "end_turn" in the
+    // stop reason). A terminated badge renders in red via the
+    // statusVariant map, so operators can see at a glance that
+    // the run failed.
+    await updateSessionStatus(sessionId, "terminated");
+    const terminatedEvent = await storeEvent(
+      sessionId,
+      "session.status_terminated",
+      {},
+    );
+    emitter?.emit(terminatedEvent);
   }
 }
 
