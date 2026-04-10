@@ -1,217 +1,343 @@
-# Open Managed Agents
+<p align="center">
+  <img src="packages/web/public/logo.svg" width="80" height="80" alt="Open Managed Agents">
+</p>
 
-An open-source clone of [Anthropic's Claude Managed Agents](https://platform.claude.com/docs/en/managed-agents/quickstart) platform. TypeScript monorepo with a React UI matching the Anthropic console, a Hono API server with auto-generated OpenAPI specs, and a CLI tool.
+<h1 align="center">Open Managed Agents</h1>
 
-> **Verified E2E**: Creates real agents, environments, and sessions on Anthropic's API. Sends messages, receives event streams, and displays them in real-time.
+<p align="center">
+  <strong>Self-hosted agent management platform with multi-LLM support and enterprise governance.</strong>
+</p>
+
+<p align="center">
+  An open-source alternative to <a href="https://platform.claude.com/docs/en/managed-agents/quickstart">Anthropic Claude Managed Agents</a>.<br/>
+  Use any LLM provider. Control access per team. Deploy on your infrastructure.
+</p>
+
+<p align="center">
+  <a href="#quickstart">Quickstart</a> &bull;
+  <a href="#features">Features</a> &bull;
+  <a href="#multi-llm-providers">Multi-LLM</a> &bull;
+  <a href="#enterprise-governance">Governance</a> &bull;
+  <a href="#self-hosting">Self-Hosting</a> &bull;
+  <a href="#helm-chart">Helm Chart</a>
+</p>
+
+---
+
+## Why Open Managed Agents?
+
+Claude Managed Agents is great — but it's locked to Anthropic's cloud, Anthropic's models, and Anthropic's access controls. **Open Managed Agents** gives you the same experience with:
+
+| | Claude Managed Agents | Open Managed Agents |
+|---|:---:|:---:|
+| **Self-hosted** | No | Yes |
+| **Multi-LLM** (Anthropic, OpenAI, Ollama, etc.) | No | Yes |
+| **Org/Team/Project hierarchy** | Limited | Full RBAC |
+| **API key governance per team** | No | Yes |
+| **MCP integration policies** | No | Per-team allow/block |
+| **Infra-as-code config** | No | JSON/YAML governance file |
+| **Helm chart** | N/A | Included |
+| **Audit logging** | Limited | Full |
+| **Local/air-gapped deployment** | No | Yes (Ollama) |
 
 ## Features
 
-- **Quickstart Wizard** — guided 4-step flow: create agent, configure environment, start session, test run. Template browser with 10 pre-built agent templates
-- **Agent Builder** — create and configure agents with model selection, system prompts, tool configurations (bash, edit, read, write, glob, grep, web_fetch, web_search), MCP server connections, and skills
-- **Environment Manager** — configure cloud containers with networking policies (unrestricted/limited), package managers (pip, npm, apt, cargo, gem, go)
-- **Session Viewer** — real-time event streaming with Transcript and Debug views, color-coded event badges (Running/User/Model/Tool/Agent/Idle), token usage, elapsed time, search/filter, message input to interact with running agents
-- **Credential Vaults** — AES-256-GCM encrypted credential storage for MCP server tokens and OAuth credentials
+### Agent Management
+- **Quickstart Wizard** — 4-step guided flow: select template → create agent → configure environment → start session
+- **10 Pre-built Templates** — Blank, Deep Researcher, Structured Extractor, Field Monitor, Support Agent, Incident Commander, Feedback Miner, Sprint Retro Facilitator, Support-to-Eng Escalator, Data Analyst
+- **Agent Builder** — model selection, system prompts, tool configs (bash, edit, read, write, glob, grep, web_fetch, web_search), MCP servers, skills
+
+### Multi-LLM Provider Support
+- **Anthropic** — Claude Opus, Sonnet, Haiku
+- **OpenAI** — GPT-4o, GPT-4o-mini, o3, o4
+- **OpenAI-compatible** — Any API following the OpenAI format (Azure OpenAI, Together, Groq, Fireworks, etc.)
+- **Ollama** — Local models (Llama 3, Mistral, CodeLlama, Phi, etc.)
+- Per-agent provider selection — each agent can use a different LLM provider
+- Provider management API — add, remove, list models
+
+### Session & Event Streaming
+- **Real-time SSE streaming** — live event stream as agents think, call tools, and respond
+- **Transcript view** — clean conversation view with user/agent messages
+- **Debug view** — all events: model request start/end, token usage, tool calls, timing
+- **Interactive sessions** — send messages to running agents
+
+### Enterprise Governance
+- **Organization → Team → Project** hierarchy
+- **RBAC** — admin, member, viewer roles at org and team level
+- **Provider access control** — admins control which teams can use which LLM providers
+- **Rate limits & budgets** — per-team RPM limits and monthly USD budgets
+- **MCP integration policies** — allow, block, or require approval per connector per team
+- **Audit logging** — track all actions with user, resource, and timestamp
+- **Infra-as-code** — deploy governance config from a JSON file (see `governance.example.json`)
+
+### Infrastructure
+- **Environment Manager** — networking policies (unrestricted/limited), package managers
+- **Credential Vaults** — AES-256-GCM encrypted secret storage
+- **MCP Connector Discovery** — 12 built-in connectors (Slack, Notion, GitHub, Linear, Sentry, Asana, Amplitude, Intercom, Atlassian, Google Drive, PostgreSQL, Stripe)
 - **OpenAPI Specs** — auto-generated from Zod schemas, Swagger UI at `/docs`
-- **CLI** — full command-line interface (`oma`) with 1:1 API endpoint mapping
-- **Dark Theme** — UI matching the Anthropic console aesthetic
+- **CLI** — full command-line interface (`oma`) with 1:1 API mapping
 
-## Authentication
-
-Multiple auth methods, in priority order:
-
-| Method | How | Best for |
-|---|---|---|
-| **API Key (env)** | Set `ANTHROPIC_API_KEY` in `.env` or environment | Server deployments |
-| **API Key (header)** | Pass `x-api-key` header per request | Multi-tenant / frontend |
-| **Claude Code Auth** | _(coming soon)_ Reuse your Claude Max/Pro subscription via local OAuth token | Local development |
-
-### Claude Code Auth (Roadmap)
-
-If you have Claude Code installed and authenticated, Open Managed Agents can detect your local OAuth credentials from `~/Library/Application Support/Claude/config.json` (macOS) or `~/.config/Claude/config.json` (Linux). This lets Claude Max/Pro subscribers use their existing subscription without a separate API key.
-
-**Status:** Detection is implemented; decryption via macOS Keychain (keytar) is in progress.
-
-## Quick Start
+## Quickstart
 
 ### Prerequisites
-
-- Node.js 18+
+- Node.js 22+
 - pnpm 10+
-- An Anthropic API key (or Claude Code subscription, coming soon)
 
 ### Setup
 
 ```bash
-git clone https://github.com/your-org/open-managed-agents.git
+git clone https://github.com/langwatch/open-managed-agents.git
 cd open-managed-agents
 pnpm install
 
-# Set your API key
-echo 'ANTHROPIC_API_KEY=your-key-here' > .env
+# Add at least one LLM provider API key
+cp .env.example .env
+# Edit .env with your keys:
+#   ANTHROPIC_API_KEY=sk-ant-...
+#   OPENAI_API_KEY=sk-proj-...
+
+# Start development servers
+pnpm dev
 ```
 
-### Run
+Open http://localhost:5173 and follow the Quickstart wizard.
+
+### Using with Ollama (no API key needed)
 
 ```bash
-# Start both server + frontend (recommended)
+# Install Ollama: https://ollama.ai
+ollama pull llama3.1
+
+# Start Open Managed Agents
 pnpm dev
 
-# Or start individually:
-pnpm --filter @open-managed-agents/server dev  # API server on port 3001
-pnpm --filter @open-managed-agents/web dev     # Frontend on port 5173
+# Add Ollama as a provider via API:
+curl -X POST http://localhost:3001/v1/providers \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "Ollama",
+    "type": "ollama",
+    "base_url": "http://localhost:11434/v1",
+    "default_model": "llama3.1",
+    "is_default": true
+  }'
 ```
 
-Open [http://localhost:5173](http://localhost:5173) for the UI, or [http://localhost:3001/docs](http://localhost:3001/docs) for the Swagger UI.
+## Multi-LLM Providers
 
-### CLI
+Agents can use any configured LLM provider. Providers are managed via the API:
 
 ```bash
-# Run directly
-npx tsx packages/cli/src/index.ts agents list
+# List configured providers
+curl http://localhost:3001/v1/providers
 
-# Or alias it
-alias oma="npx tsx $(pwd)/packages/cli/src/index.ts"
+# Add OpenAI
+curl -X POST http://localhost:3001/v1/providers \
+  -H "Content-Type: application/json" \
+  -d '{"name": "OpenAI", "type": "openai", "api_key": "sk-...", "default_model": "gpt-4o"}'
 
-# Create an agent
-oma agents create --name "My Agent" --model claude-sonnet-4-6 --system "You are helpful."
+# List available models for a provider
+curl http://localhost:3001/v1/providers/provider_openai/models
 
-# Create an environment
-oma environments create --name "dev-env" --networking unrestricted
-
-# Create a session and interact
-oma sessions run --agent agent_xxx --environment env_xxx
-
-# Stream session events
-oma sessions stream sesn_xxx
-
-# Full help
-oma --help
-oma sessions --help
+# Create an agent using a specific provider
+curl -X POST http://localhost:3001/v1/agents \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "GPT Agent",
+    "model": "gpt-4o",
+    "model_provider_id": "provider_openai",
+    "system": "You are a helpful assistant."
+  }'
 ```
+
+## Enterprise Governance
+
+### Governance Config File (Infra-as-Code)
+
+Deploy access controls via a JSON config file:
+
+```bash
+# Set the governance config path
+export GOVERNANCE_CONFIG=governance.json
+
+# Start the server - config is applied on startup
+pnpm --filter @open-managed-agents/server dev
+```
+
+See `governance.example.json` for a full example covering:
+- Provider definitions with API key references from env vars
+- Organization with multiple teams
+- Per-team provider access with rate limits and budgets
+- Per-team MCP connector policies (allow/block/require approval)
+- Project structure
+
+### API-based Governance
+
+```bash
+# Create organization
+curl -X POST http://localhost:3001/v1/organizations \
+  -d '{"name": "Acme Corp", "slug": "acme"}'
+
+# Create team
+curl -X POST http://localhost:3001/v1/organizations/org_acme/teams \
+  -d '{"name": "Engineering", "slug": "engineering"}'
+
+# Control which providers a team can use
+curl -X POST http://localhost:3001/v1/teams/team_acme_engineering/provider-access \
+  -d '{"provider_id": "provider_anthropic", "enabled": true, "rate_limit_rpm": 1000, "monthly_budget_usd": 500}'
+
+# Block specific MCP integrations
+curl -X POST http://localhost:3001/v1/teams/team_acme_engineering/mcp-policies \
+  -d '{"connector_id": "stripe", "policy": "blocked"}'
+
+# View audit log
+curl http://localhost:3001/v1/audit-log
+```
+
+## Self-Hosting
+
+### Docker Compose
+
+```bash
+docker-compose up
+# Web UI: http://localhost:5173
+# API:    http://localhost:3001
+# Docs:   http://localhost:3001/docs
+```
+
+### Helm Chart (Kubernetes)
+
+```bash
+helm install oma ./helm/open-managed-agents \
+  --set server.env.ANTHROPIC_API_KEY=$ANTHROPIC_API_KEY \
+  --set ingress.enabled=true \
+  --set ingress.host=agents.your-company.com
+```
+
+See `helm/open-managed-agents/values.yaml` for all configuration options.
+
+### Environment Variables
+
+| Variable | Required | Default | Description |
+|---|---|---|---|
+| `ANTHROPIC_API_KEY` | No* | — | Anthropic API key (auto-creates provider) |
+| `OPENAI_API_KEY` | No* | — | OpenAI API key (auto-creates provider) |
+| `DATABASE_PATH` | No | `data/oma.db` | SQLite database path |
+| `PORT` | No | `3001` | Server port |
+| `VAULT_ENCRYPTION_KEY` | No | Auto-generated | AES-256 key for credential encryption |
+| `GOVERNANCE_CONFIG` | No | — | Path to governance config JSON file |
+
+*At least one LLM provider API key is needed, or configure Ollama for local models.
 
 ## Architecture
 
 ```
-packages/
-  types/     — Shared TypeScript types (strict 1:1 mapping from Anthropic SDK)
-  server/    — Hono API server with @hono/zod-openapi
-  web/       — React 19 + Vite + Tailwind v4 frontend
-  cli/       — Commander-based CLI tool
-specs/       — BDD feature specs (Gherkin format)
-.refs/       — Cloned reference repos (gitignored)
+┌─────────────────┐     ┌──────────────────────────┐
+│   React Web UI  │────▶│     Hono API Server      │
+│  (Vite + React  │     │                          │
+│   Router + TQ)  │     │  ┌────────────────────┐  │
+└─────────────────┘     │  │   LLM Providers    │  │
+                        │  │  ┌──────────────┐  │  │
+┌─────────────────┐     │  │  │  Anthropic   │  │  │
+│    CLI (oma)    │────▶│  │  │  OpenAI      │  │  │
+│                 │     │  │  │  Ollama      │  │  │
+└─────────────────┘     │  │  │  Compatible  │  │  │
+                        │  │  └──────────────┘  │  │
+                        │  │                    │  │
+                        │  │   Agent Engine     │  │
+                        │  │  ┌──────────────┐  │  │
+                        │  │  │ Agent Loop   │  │  │
+                        │  │  │ Tool Exec    │  │  │
+                        │  │  │ SSE Stream   │  │  │
+                        │  │  └──────────────┘  │  │
+                        │  │                    │  │
+                        │  │   Governance       │  │
+                        │  │  ┌──────────────┐  │  │
+                        │  │  │ Org/Team/Proj│  │  │
+                        │  │  │ RBAC         │  │  │
+                        │  │  │ MCP Policies │  │  │
+                        │  │  │ Audit Log    │  │  │
+                        │  │  └──────────────┘  │  │
+                        │  └────────────────────┘  │
+                        │                          │
+                        │  SQLite (oma.db)          │
+                        └──────────────────────────┘
 ```
 
-### API Server
+## Project Structure
 
-The server proxies requests to the Anthropic Managed Agents API, adding:
-
-- **OpenAPI documentation** — auto-generated from Zod schemas, served at `/openapi.json`
-- **Swagger UI** — interactive API explorer at `/docs`
-- **Vault encryption** — AES-256-GCM encryption for credential storage
-- **CORS** — enabled for frontend development
-- **Auth middleware** — flexible API key resolution (env, header, Claude Code)
-
-### Endpoints
-
-| Group | Endpoints |
-|---|---|
-| **Agents** | `POST/GET /v1/agents`, `GET/POST /v1/agents/:id`, `POST /v1/agents/:id/archive` |
-| **Environments** | `POST/GET /v1/environments`, `GET/POST/DELETE /v1/environments/:id`, `POST /v1/environments/:id/archive` |
-| **Sessions** | `POST/GET /v1/sessions`, `GET/POST/DELETE /v1/sessions/:id`, `POST /v1/sessions/:id/archive` |
-| **Events** | `GET/POST /v1/sessions/:id/events`, `GET /v1/sessions/:id/events/stream` (SSE) |
-| **Resources** | `GET/POST /v1/sessions/:id/resources`, `GET/POST/DELETE /v1/sessions/:id/resources/:rid` |
-| **Vaults** | `POST/GET /v1/vaults`, `GET/POST/DELETE /v1/vaults/:id`, `POST /v1/vaults/:id/archive` |
-| **Credentials** | `POST/GET /v1/vaults/:id/credentials`, `GET/POST/DELETE /v1/vaults/:vid/credentials/:cid` |
-
-### Vault Encryption
-
-Credential secrets (tokens, client secrets, refresh tokens) are encrypted at rest using:
-
-- **Algorithm:** AES-256-GCM
-- **Key:** 32-byte key from `VAULT_ENCRYPTION_KEY` env var (auto-generated on first run)
-- **IV:** Random 12-byte nonce per credential
-- **Auth tag:** 16-byte GCM authentication tag for tamper detection
-- **Storage:** Base64-encoded `IV + ciphertext + authTag`
-
-Secret values are **never** returned in API responses.
-
-## Frontend
-
-React 19 with Vite 6, Tailwind CSS v4, TanStack React Query, React Router, and Lucide icons.
-
-### Pages
-
-| Page | Route | Description |
-|---|---|---|
-| Quickstart | `/quickstart` | 4-step wizard: template → agent → environment → session |
-| Agents | `/agents` | List, filter, paginate agents |
-| Agent detail | `/agents/:id` | YAML/JSON config view, details sidebar |
-| Sessions | `/sessions` | List, filter by agent, checkboxes |
-| Session detail | `/sessions/:id` | Transcript/Debug views, SSE streaming, send messages |
-| Environments | `/environments` | List with All/Active filter |
-| Environment detail | `/environments/:id` | Networking, packages, details |
-| Vaults | `/vaults` | List with All/Active filter |
-| Vault detail | `/vaults/:id` | Credentials table, vault details |
-
-### Tests
-
-74 tests across 10 test suites using Vitest + React Testing Library:
-
-```bash
-pnpm --filter @open-managed-agents/web test
+```
+open-managed-agents/
+├── packages/
+│   ├── types/          # Shared TypeScript types (Zod schemas)
+│   ├── server/         # Hono API server with agent engine
+│   │   ├── src/
+│   │   │   ├── db/           # SQLite database layer
+│   │   │   ├── engine/       # Agent execution engine
+│   │   │   ├── providers/    # LLM provider abstraction
+│   │   │   │   ├── anthropic.ts
+│   │   │   │   └── openai.ts
+│   │   │   ├── routes/       # API routes
+│   │   │   │   ├── agents.ts
+│   │   │   │   ├── sessions.ts
+│   │   │   │   ├── events.ts
+│   │   │   │   ├── providers.ts
+│   │   │   │   ├── governance.ts
+│   │   │   │   └── ...
+│   │   │   └── lib/          # Auth, encryption, governance config
+│   │   └── data/             # SQLite database (gitignored)
+│   ├── web/            # React frontend
+│   └── cli/            # CLI tool (oma)
+├── helm/               # Kubernetes Helm chart
+├── specs/              # BDD feature specifications (17 files)
+├── governance.example.json  # Example governance config
+├── docker-compose.yml
+├── Dockerfile.server
+├── Dockerfile.web
+└── nginx.conf
 ```
 
-## BDD Specs
+## API Reference
 
-All features are specified upfront in `specs/` using Gherkin format:
+Full OpenAPI documentation is available at `http://localhost:3001/docs` when the server is running.
 
-| Spec | Covers |
-|---|---|
-| `quickstart.feature` | Full 4-step wizard flow, template browser |
-| `agents-api.feature` | Agents CRUD, validation, versioning, concurrency |
-| `sessions-api.feature` | Sessions lifecycle, status transitions, agent snapshots |
-| `events-api.feature` | Event send/list/stream, SSE, all event types |
-| `environments-api.feature` | Networking, packages, CRUD |
-| `vaults-api.feature` | Vault + credential CRUD, encryption, secret redaction |
-| `encryption.feature` | AES-256-GCM algorithm, key management |
-| `auth.feature` | API key, Claude Code auth, per-request override |
-| `cli.feature` | All CLI commands, output formats, interactive mode |
-| `openapi.feature` | Auto-generated spec, Swagger UI, schema validation |
-| `*-ui.feature` | UI pages: agents, sessions, environments, vaults, layout |
+### Core Resources
+- `POST/GET /v1/agents` — Create, list, retrieve, update, archive agents
+- `POST/GET /v1/sessions` — Create, list, retrieve sessions
+- `POST/GET /v1/sessions/{id}/events` — Send messages, list events
+- `GET /v1/sessions/{id}/events/stream` — SSE event stream
+- `POST/GET /v1/environments` — Manage execution environments
+- `POST/GET /v1/vaults` — Manage credential vaults
 
-**Workflow:** Specs are written before implementation. When new behaviors are discovered, specs are updated first.
+### Provider Management
+- `GET/POST /v1/providers` — List and add LLM providers
+- `GET /v1/providers/{id}/models` — List available models
+- `DELETE /v1/providers/{id}` — Remove a provider
+
+### Governance
+- `GET/POST /v1/organizations` — Manage organizations
+- `GET/POST /v1/organizations/{id}/teams` — Manage teams
+- `GET/POST /v1/teams/{id}/projects` — Manage projects
+- `GET/POST /v1/teams/{id}/members` — Manage team membership
+- `GET/POST /v1/teams/{id}/provider-access` — Control LLM provider access per team
+- `GET/POST /v1/teams/{id}/mcp-policies` — Control MCP connector access per team
+- `GET /v1/audit-log` — View audit trail
+
+### Discovery
+- `GET /v1/mcp/connectors` — Browse available MCP connectors
 
 ## Development
 
 ```bash
-# Type-check all packages
-pnpm typecheck
-
-# Run frontend tests
-pnpm --filter @open-managed-agents/web test
-
-# Build all packages
-pnpm build
-
-# Build types (needed before other packages)
-pnpm --filter @open-managed-agents/types build
+pnpm dev          # Start server + frontend
+pnpm build        # Build all packages
+pnpm test         # Run tests (74 tests across 10 suites)
+pnpm typecheck    # Type-check all packages
 ```
 
-## Roadmap
+## Contributing
 
-- [x] Full quickstart wizard (template → agent → environment → session)
-- [x] Session detail page with Transcript/Debug views
-- [x] Real E2E with Anthropic API (agent create, env create, session, events)
-- [ ] Claude Code OAuth token decryption (keytar / macOS Keychain)
-- [ ] Live SSE streaming in session detail (currently polls)
-- [ ] Agent editor/detail page with inline config editing
-- [ ] MCP discovery service integration for connector marketplace
-- [ ] Connector logo icons (replacing text badges)
-- [ ] Server integration tests
-- [ ] CLI interactive session REPL improvements
-- [ ] Docker compose for easy deployment
-- [ ] File upload support for session resources
-- [ ] GitHub repository resource mounting
+Contributions welcome. The project follows a BDD-first workflow — check `specs/` for feature specifications.
 
 ## License
 
