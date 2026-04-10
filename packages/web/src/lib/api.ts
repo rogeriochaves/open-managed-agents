@@ -495,6 +495,26 @@ export function setTeamMcpPolicy(
   });
 }
 
+// ── Audit log ──────────────────────────────────────────────────────────
+export interface AuditLogEntry {
+  id: string;
+  user_id: string | null;
+  action: string;
+  resource_type: string;
+  resource_id: string | null;
+  details: Record<string, unknown> | null;
+  created_at: string;
+}
+
+export function listAuditLog(params?: {
+  limit?: number;
+  resource_type?: string;
+}) {
+  return request<{ data: AuditLogEntry[] }>(
+    `/audit-log${toSearchParams(params as Record<string, string | number | boolean | undefined> ?? {})}`,
+  );
+}
+
 // ── Usage summary ─────────────────────────────────────────────────────
 export interface UsageSummary {
   total_sessions: number;

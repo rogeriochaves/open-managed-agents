@@ -18,6 +18,7 @@ vi.mock("../lib/api", () => ({
   setTeamProviderAccess: vi.fn(),
   listTeamMcpPolicies: vi.fn(),
   setTeamMcpPolicy: vi.fn(),
+  listAuditLog: vi.fn(),
 }));
 
 import * as api from "../lib/api";
@@ -159,6 +160,38 @@ describe("SettingsPage", () => {
       team_id: "team_default",
       connector_id: "slack",
       policy: "blocked",
+    });
+
+    vi.mocked(api.listAuditLog).mockResolvedValue({
+      data: [
+        {
+          id: "audit_1",
+          user_id: "user_admin",
+          action: "create",
+          resource_type: "agent",
+          resource_id: "agent_xyz",
+          details: { name: "Support agent" },
+          created_at: "2026-04-10T10:00:00Z",
+        },
+        {
+          id: "audit_2",
+          user_id: "user_admin",
+          action: "archive",
+          resource_type: "session",
+          resource_id: "sesn_abc",
+          details: null,
+          created_at: "2026-04-10T11:00:00Z",
+        },
+        {
+          id: "audit_3",
+          user_id: null,
+          action: "update",
+          resource_type: "provider",
+          resource_id: "provider_anthropic",
+          details: null,
+          created_at: "2026-04-10T12:00:00Z",
+        },
+      ],
     });
   });
 
@@ -394,6 +427,87 @@ describe("SettingsPage", () => {
           policy: "blocked",
         }),
       );
+    });
+  });
+
+  // ── Audit log tab ───────────────────────────────────────────────────
+  it("renders the Audit log tab button", () => {
+    renderPage();
+    expect(
+      screen.getByRole("button", { name: /Audit log/i }),
+    ).toBeInTheDocument();
+  });
+
+  it("switches to Audit log tab and fetches the log", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await user.click(screen.getByRole("button", { name: /Audit log/i }));
+    await waitFor(() => {
+      expect(api.listAuditLog).toHaveBeenCalled();
+    });
+    expect(
+      screen.getByRole("heading", { name: "Audit log" }),
+    ).toBeInTheDocument();
+  });
+
+  it("does NOT fetch the audit log until the tab is opened", async () => {
+    renderPage();
+    // Let the initial render settle
+    await waitFor(() => {
+      expect(api.listProviders).toHaveBeenCalled();
+    });
+    expect(api.listAuditLog).not.toHaveBeenCalled();
+  });
+
+  it("renders audit rows with actor name, action badge, resource", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await user.click(screen.getByRole("button", { name: /Audit log/i }));
+
+    await waitFor(() => {
+      expect(screen.getByText("create")).toBeInTheDocument();
+    });
+    expect(screen.getByText("archive")).toBeInTheDocument();
+    expect(screen.getByText("update")).toBeInTheDocument();
+    // Resource IDs
+    expect(screen.getByText("agent_xyz")).toBeInTheDocument();
+    expect(screen.getByText("sesn_abc")).toBeInTheDocument();
+    // Actor: user_admin resolves to "Admin" via the users mock
+    expect(screen.getAllByText("Admin").length).toBeGreaterThan(0);
+    // Null user_id renders as "system"
+    expect(screen.getByText("system")).toBeInTheDocument();
+  });
+
+  it("refetches the audit log when the resource-type filter changes", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await user.click(screen.getByRole("button", { name: /Audit log/i }));
+
+    await waitFor(() => {
+      expect(api.listAuditLog).toHaveBeenCalledWith({ limit: 100 });
+    });
+
+    // Change the filter to agent
+    const select = screen.getByRole("combobox");
+    await user.selectOptions(select, "agent");
+
+    await waitFor(() => {
+      expect(api.listAuditLog).toHaveBeenCalledWith({
+        limit: 100,
+        resource_type: "agent",
+      });
+    });
+  });
+
+  it("shows an empty-state message when the audit log has no entries", async () => {
+    vi.mocked(api.listAuditLog).mockResolvedValue({ data: [] });
+    const user = userEvent.setup();
+    renderPage();
+    await user.click(screen.getByRole("button", { name: /Audit log/i }));
+    await waitFor(() => {
+      expect(
+        screen.getByText(/No audit entries yet/i),
+      ).toBeInTheDocument();
     });
   });
 });

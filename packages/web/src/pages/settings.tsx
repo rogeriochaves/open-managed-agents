@@ -10,12 +10,13 @@ import {
   Server,
   Building2,
   X,
+  ScrollText,
 } from "lucide-react";
 import { Button } from "../components/ui/button";
 import { Badge } from "../components/ui/badge";
 import * as api from "../lib/api";
 
-type Tab = "providers" | "organization" | "governance";
+type Tab = "providers" | "organization" | "governance" | "audit";
 
 const PROVIDER_TYPES = [
   { value: "anthropic", label: "Anthropic", defaultModel: "claude-sonnet-4-6" },
@@ -89,6 +90,19 @@ export function SettingsPage() {
     enabled: !!activeTeamId,
   });
   const mcpPolicies = policiesData?.data ?? [];
+
+  // ── Audit log state ────────────────────────────────────────────────
+  const [auditResourceType, setAuditResourceType] = useState<string>("");
+  const { data: auditData } = useQuery({
+    queryKey: ["audit-log", auditResourceType],
+    queryFn: () =>
+      api.listAuditLog({
+        limit: 100,
+        ...(auditResourceType ? { resource_type: auditResourceType } : {}),
+      }),
+    enabled: tab === "audit",
+  });
+  const auditEntries = auditData?.data ?? [];
 
   const { data: connectorsData } = useQuery({
     queryKey: ["connectors"],
@@ -533,6 +547,95 @@ export function SettingsPage() {
     </div>
   );
 
+  // ── Audit log render ───────────────────────────────────────────────
+  const userNameById = (userId: string | null): string => {
+    if (!userId) return "system";
+    return users.find((u: any) => u.id === userId)?.name ?? userId;
+  };
+
+  const actionVariant = (
+    action: string,
+  ): "active" | "terminated" | "info" | "default" => {
+    if (action === "create") return "active";
+    if (action === "archive" || action === "delete") return "terminated";
+    if (action === "update") return "info";
+    return "default";
+  };
+
+  const renderAudit = () => (
+    <div>
+      <div className="flex items-center justify-between mb-4">
+        <div>
+          <h2 className="text-lg font-semibold text-text-primary">Audit log</h2>
+          <p className="text-sm text-text-secondary mt-1">
+            Every create, update, archive, and delete is recorded with the
+            acting user, resource, and timestamp. Newest first.
+          </p>
+        </div>
+        <select
+          value={auditResourceType}
+          onChange={(e) => setAuditResourceType(e.target.value)}
+          className="rounded-md border border-surface-border bg-surface-secondary px-3 py-1.5 text-sm text-text-primary focus:border-accent-blue focus:outline-none"
+        >
+          <option value="">All resources</option>
+          <option value="agent">Agents</option>
+          <option value="session">Sessions</option>
+          <option value="environment">Environments</option>
+          <option value="vault">Vaults</option>
+          <option value="provider">Providers</option>
+          <option value="organization">Organizations</option>
+          <option value="team">Teams</option>
+          <option value="user">Users</option>
+        </select>
+      </div>
+
+      <div className="rounded-lg border border-surface-border bg-surface-card overflow-hidden">
+        {auditEntries.length === 0 ? (
+          <p className="p-6 text-sm text-text-muted text-center">
+            No audit entries yet. Create or modify a resource and they'll
+            show up here.
+          </p>
+        ) : (
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b border-surface-border text-xs text-text-muted uppercase tracking-wider">
+                <th className="text-left px-4 py-2">Time</th>
+                <th className="text-left px-4 py-2">Actor</th>
+                <th className="text-left px-4 py-2">Action</th>
+                <th className="text-left px-4 py-2">Resource</th>
+                <th className="text-left px-4 py-2">Resource ID</th>
+              </tr>
+            </thead>
+            <tbody>
+              {auditEntries.map((entry) => (
+                <tr
+                  key={entry.id}
+                  className="border-b border-surface-border last:border-0 hover:bg-surface-hover/40"
+                >
+                  <td className="px-4 py-2 text-xs text-text-secondary whitespace-nowrap">
+                    {new Date(entry.created_at).toLocaleString()}
+                  </td>
+                  <td className="px-4 py-2 text-xs text-text-primary">
+                    {userNameById(entry.user_id)}
+                  </td>
+                  <td className="px-4 py-2">
+                    <Badge variant={actionVariant(entry.action)}>{entry.action}</Badge>
+                  </td>
+                  <td className="px-4 py-2 text-xs text-text-secondary capitalize">
+                    {entry.resource_type}
+                  </td>
+                  <td className="px-4 py-2 text-[11px] text-text-muted font-mono break-all">
+                    {entry.resource_id ?? "—"}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </div>
+    </div>
+  );
+
   return (
     <div className="p-6">
       <h1 className="text-2xl font-semibold text-text-primary mb-1">Settings</h1>
@@ -546,6 +649,7 @@ export function SettingsPage() {
           { id: "providers" as Tab, label: "Providers", icon: Server },
           { id: "organization" as Tab, label: "Organization", icon: Building2 },
           { id: "governance" as Tab, label: "Governance", icon: Shield },
+          { id: "audit" as Tab, label: "Audit log", icon: ScrollText },
         ]).map(({ id, label, icon: Icon }) => (
           <button
             key={id}
@@ -565,6 +669,7 @@ export function SettingsPage() {
       {tab === "providers" && renderProviders()}
       {tab === "organization" && renderOrganization()}
       {tab === "governance" && renderGovernance()}
+      {tab === "audit" && renderAudit()}
 
       {/* Add team dialog ─────────────────────────────────────────── */}
       {teamOpen && (
