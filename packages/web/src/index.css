@@ -170,8 +170,11 @@
     --text-primary: var(--fg-primary);
     --text-secondary: var(--fg-secondary);
     --text-muted: var(--fg-muted);
-    --accent-blue-legacy: var(--color-orange-500);
-    --accent-purple-legacy: var(--color-orange-600);
+    /* Legacy alias — used to resolve to orange, which made every
+       accent-blue utility bleed orange across the UI. Point it at
+       graphite so it behaves like LangWatch's dark primary. */
+    --accent-blue-legacy: var(--color-gray-900);
+    --accent-purple-legacy: var(--color-gray-700);
   }
 
   .dark {

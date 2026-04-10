@@ -24,9 +24,11 @@ describe("Sidebar", () => {
     expect(screen.getByText("Default workspace")).toBeInTheDocument();
   });
 
-  it("renders Managed Agents section", () => {
+  it("renders the Build section header", () => {
     renderSidebar();
-    expect(screen.getByText("Managed Agents")).toBeInTheDocument();
+    // LangWatch-style uppercase section labels. "Build" groups
+    // Quickstart / Agents / Sessions.
+    expect(screen.getByText("Build")).toBeInTheDocument();
   });
 
   it("renders all nav items", () => {
@@ -41,7 +43,10 @@ describe("Sidebar", () => {
   it("highlights active link", () => {
     renderSidebar();
     const quickstartLink = screen.getByText("Quickstart").closest("a");
-    expect(quickstartLink?.className).toContain("text-orange-700");
+    // LangWatch-style active state: subtle gray-100 bg + gray-900 text
+    // (not the old saturated orange).
+    expect(quickstartLink?.className).toContain("bg-gray-100");
+    expect(quickstartLink?.className).toContain("text-gray-900");
   });
 
   it("has collapse button", () => {

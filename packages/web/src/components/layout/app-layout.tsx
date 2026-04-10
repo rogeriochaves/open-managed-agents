@@ -23,25 +23,18 @@ export function AppLayout() {
   }
 
   return (
-    <div className="relative flex h-screen w-screen overflow-hidden bg-gray-100">
-      {/* Ambient background glow — subtle like LangWatch */}
-      <div
-        aria-hidden
-        className="pointer-events-none absolute inset-0 overflow-hidden"
-      >
-        <div className="absolute -top-40 -left-40 h-[480px] w-[480px] rounded-full bg-orange-200/30 blur-3xl" />
-        <div className="absolute top-1/2 -right-40 h-[520px] w-[520px] rounded-full bg-blue-200/20 blur-3xl" />
-      </div>
-
-      <div className="relative z-10 flex h-full w-full">
-        <Sidebar
-          collapsed={collapsed}
-          onToggle={() => setCollapsed((c) => !c)}
-        />
-        <main className="flex-1 overflow-y-auto">
-          <Outlet />
-        </main>
-      </div>
+    <div className="flex h-screen w-screen overflow-hidden bg-gray-100">
+      <Sidebar
+        collapsed={collapsed}
+        onToggle={() => setCollapsed((c) => !c)}
+      />
+      {/* Main content is a floating rounded card — LangWatch pattern.
+          Margin gap from the sidebar + top/right/bottom edges, white
+          surface with a subtle border and big top-left/bottom-left
+          radius. */}
+      <main className="flex-1 overflow-y-auto my-2 mr-2 rounded-2xl border border-gray-200 bg-white shadow-sm">
+        <Outlet />
+      </main>
     </div>
   );
 }

@@ -10,8 +10,10 @@ interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
 }
 
 const variantClasses: Record<ButtonVariant, string> = {
+  // LangWatch-style: primary is dark graphite, not a saturated brand
+  // color. Orange is reserved for the logo/brand mark only.
   primary:
-    "bg-orange-500 hover:bg-orange-600 text-white shadow-sm",
+    "bg-gray-900 hover:bg-gray-800 text-white shadow-sm",
   secondary:
     "bg-white hover:bg-gray-50 text-gray-900 border border-gray-200 shadow-sm",
   outline:
