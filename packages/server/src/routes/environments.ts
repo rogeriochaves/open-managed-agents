@@ -116,6 +116,21 @@ export function registerEnvironmentRoutes(app: OpenAPIHono) {
     if (body.description !== undefined) { updates.push("description = ?"); values.push(body.description); }
     if (body.config?.networking !== undefined) { updates.push("networking = ?"); values.push(JSON.stringify(body.config.networking)); }
     if (body.config?.packages !== undefined) { updates.push("packages = ?"); values.push(JSON.stringify(body.config.packages)); }
+    // metadata was declared on EnvironmentUpdateBodySchema but
+    // silently ignored — added as a patch merge so adding one key
+    // doesn't wipe the others. Same shape as the agents/vaults handlers.
+    if (body.metadata !== undefined) {
+      const existing = await db.get<{ metadata: string }>(
+        "SELECT metadata FROM environments WHERE id = ?",
+        environmentId,
+      );
+      const existingMeta = existing?.metadata
+        ? JSON.parse(existing.metadata)
+        : {};
+      const merged = { ...existingMeta, ...body.metadata };
+      updates.push("metadata = ?");
+      values.push(JSON.stringify(merged));
+    }
 
     if (updates.length > 0) {
       updates.push("updated_at = ?");

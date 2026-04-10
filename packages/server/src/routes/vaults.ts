@@ -107,8 +107,31 @@ export function registerVaultRoutes(app: OpenAPIHono) {
     const db = await getDB();
     const updates: string[] = [];
     const values: any[] = [];
-    if (body.name !== undefined) { updates.push("name = ?"); values.push(body.name); }
-    if (body.description !== undefined) { updates.push("description = ?"); values.push(body.description); }
+    // NB: VaultUpdateBodySchema declares { display_name, metadata }.
+    // The DB column is `name` (vaults.name) and the API field is
+    // `display_name`, so rowToVault projects name → display_name on
+    // the way out. The previous handler read body.name / body.description
+    // which are NOT on the schema, silently dropped every update,
+    // and returned the row unchanged — a classic silent no-op.
+    if (body.display_name !== undefined) {
+      updates.push("name = ?");
+      values.push(body.display_name);
+    }
+    if (body.metadata !== undefined) {
+      // Metadata is a patch — merge against the existing row so
+      // callers can add a key without wiping the others. Matches
+      // the way the agents update handler treats metadata.
+      const existing = await db.get<{ metadata: string }>(
+        "SELECT metadata FROM vaults WHERE id = ?",
+        vaultId,
+      );
+      const existingMeta = existing?.metadata
+        ? JSON.parse(existing.metadata)
+        : {};
+      const merged = { ...existingMeta, ...body.metadata };
+      updates.push("metadata = ?");
+      values.push(JSON.stringify(merged));
+    }
     if (updates.length > 0) {
       updates.push("updated_at = ?");
       values.push(new Date().toISOString());
@@ -117,6 +140,7 @@ export function registerVaultRoutes(app: OpenAPIHono) {
     }
     const row = await db.get("SELECT * FROM vaults WHERE id = ?", vaultId);
     if (!row) throw Object.assign(new Error(`Vault ${vaultId} not found`), { status: 404, type: "not_found" });
+    await auditLog(await currentUserId(c), "update", "vault", vaultId);
     return c.json(rowToVault(row), 200);
   });
 

@@ -113,6 +113,50 @@ describe("Vaults + encryption", () => {
     const afterBody = (await afterRes.json()) as { data: unknown[] };
     expect(afterBody.data.length).toBe(0);
   });
+
+  // ── Update regression ───────────────────────────────────────────────
+  // Prior handler read body.name / body.description, but the schema
+  // declares display_name + metadata. Every vault update was a silent
+  // no-op — the client sent a new display_name, zod happily validated
+  // it, the handler ran an UPDATE with zero columns, and returned the
+  // unchanged row. These tests lock the fix.
+
+  it("POST /v1/vaults/:id persists display_name", async () => {
+    const res = await app.request(`/v1/vaults/${vaultId}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ display_name: "Renamed Secrets" }),
+    });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { display_name: string };
+    expect(body.display_name).toBe("Renamed Secrets");
+
+    // Verify the change actually reached the DB, not just the
+    // immediate response body.
+    const fresh = await app.request(`/v1/vaults/${vaultId}`);
+    const freshBody = (await fresh.json()) as { display_name: string };
+    expect(freshBody.display_name).toBe("Renamed Secrets");
+  });
+
+  it("POST /v1/vaults/:id merges metadata as a patch", async () => {
+    await app.request(`/v1/vaults/${vaultId}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ metadata: { env: "prod" } }),
+    });
+    // Second patch adds a key — the first key must still be there
+    await app.request(`/v1/vaults/${vaultId}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ metadata: { team: "platform" } }),
+    });
+    const fresh = await app.request(`/v1/vaults/${vaultId}`);
+    const body = (await fresh.json()) as {
+      metadata: Record<string, string>;
+    };
+    expect(body.metadata.env).toBe("prod");
+    expect(body.metadata.team).toBe("platform");
+  });
 });
 
 describe("Encryption primitives", () => {
