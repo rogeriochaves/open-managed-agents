@@ -26,8 +26,9 @@ fi
 echo "→ Testing CLI against $OMA_API_BASE"
 
 # Health: we check the server is reachable first so the failure mode
-# is clear if it isn't.
-if ! curl -sSf -o /dev/null "$OMA_API_BASE/v1/auth/me"; then
+# is clear if it isn't. /health is the canonical liveness endpoint
+# (same path used by the Dockerfile HEALTHCHECK and helm probes).
+if ! curl -sSf -o /dev/null "$OMA_API_BASE/health"; then
   echo "✗ Server at $OMA_API_BASE is not reachable"
   exit 1
 fi

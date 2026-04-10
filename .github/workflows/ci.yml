@@ -82,9 +82,10 @@ jobs:
           node packages/server/dist/index.js &
           SERVER_PID=$!
 
-          # Wait for /v1/auth/me to respond
+          # Wait for /health to respond (same endpoint the helm probes
+          # and the Dockerfile HEALTHCHECK use)
           for i in $(seq 1 30); do
-            if curl -sSf -o /dev/null http://localhost:3099/v1/auth/me; then
+            if curl -sSf -o /dev/null http://localhost:3099/health; then
               echo "Server up"
               break
             fi
