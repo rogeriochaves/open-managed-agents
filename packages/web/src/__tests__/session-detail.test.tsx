@@ -1,4 +1,5 @@
 import { render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -209,5 +210,72 @@ describe("SessionDetailPage", () => {
       screen.getByPlaceholderText("Send a message to the agent")
     ).toBeInTheDocument();
     expect(screen.getByText("Send")).toBeInTheDocument();
+  });
+
+  it("calls api.sendSessionEvents when the Send button is clicked", async () => {
+    vi.mocked(api.getSession).mockResolvedValue({
+      id: "sesn_test123",
+      type: "session",
+      title: "Test",
+      status: "idle",
+      agent: {
+        id: "agent_1",
+        type: "agent",
+        name: "Agent",
+        description: null,
+        system: null,
+        model: { id: "claude-sonnet-4-6" },
+        tools: [],
+        mcp_servers: [],
+        skills: [],
+        version: 1,
+      },
+      environment_id: "env_1",
+      resources: [],
+      usage: {},
+      stats: {},
+      metadata: {},
+      vault_ids: [],
+      created_at: "2026-04-01T00:00:00Z",
+      updated_at: "2026-04-01T00:00:00Z",
+      archived_at: null,
+    });
+    vi.mocked(api.listSessionEvents).mockResolvedValue({
+      data: [],
+      has_more: false,
+      first_id: null,
+      last_id: null,
+    });
+    vi.mocked(api.sendSessionEvents).mockResolvedValue({
+      data: [],
+    } as any);
+
+    const user = userEvent.setup();
+    renderPage();
+
+    const textarea = await screen.findByPlaceholderText(
+      "Send a message to the agent",
+    );
+    await user.type(textarea, "Hello from the test");
+
+    // There's only one Send button on this page
+    await user.click(screen.getByRole("button", { name: /^Send$/ }));
+
+    await waitFor(() => {
+      expect(api.sendSessionEvents).toHaveBeenCalledWith("sesn_test123", {
+        events: [
+          {
+            type: "user.message",
+            content: [{ type: "text", text: "Hello from the test" }],
+          },
+        ],
+      });
+    });
+
+    // The composer clears after a successful send so the user can
+    // type the next turn without deleting their previous prompt.
+    await waitFor(() => {
+      expect(textarea).toHaveValue("");
+    });
   });
 });
