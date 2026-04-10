@@ -28,7 +28,7 @@
 </p>
 
 <p align="center">
-  <img src="docs/screenshots/quickstart-qa-03-done.png" alt="Building an agent in Open Managed Agents" width="100%" />
+  <img src="docs/screenshots/tpl-qa-03-created.png" alt="Building an agent from the Support agent template in Open Managed Agents" width="100%" />
 </p>
 
 ---
@@ -178,22 +178,32 @@ Prereqs: Node.js 22+, pnpm 10+.
   </tr>
   <tr>
     <td width="50%">
-      <img src="docs/screenshots/qa-sweep/03-agents.png" alt="Agents list" />
-      <p align="center"><strong>Agents</strong> — create, version, archive; full CRUD via REST + CLI</p>
+      <img src="docs/screenshots/session-qa-02-transcript.png" alt="Multi-turn session transcript with real LLM replies" />
+      <p align="center"><strong>Session transcript</strong> — multi-turn runs against real Anthropic, markdown-rendered replies, live token counter</p>
     </td>
     <td width="50%">
-      <img src="docs/screenshots/qa-sweep/04-sessions.png" alt="Sessions list" />
-      <p align="center"><strong>Sessions</strong> — trace + debug every turn, tool call, and token</p>
+      <img src="docs/screenshots/session-qa-03-debug.png" alt="Session debug view with every span" />
+      <p align="center"><strong>Session debug view</strong> — every model request, tool call, and status change with timing</p>
     </td>
   </tr>
   <tr>
     <td width="50%">
-      <img src="docs/screenshots/qa-sweep/08-settings.png" alt="LLM provider management" />
-      <p align="center"><strong>LLM providers</strong> — Anthropic, OpenAI, Google, Mistral, Groq, Ollama, any OpenAI-compatible</p>
+      <img src="docs/screenshots/governance-qa-interactive.png" alt="Interactive Settings → Governance tab" />
+      <p align="center"><strong>Enterprise governance</strong> — toggle per-team provider access, set RPM / monthly budget caps, cycle MCP connector policies between allowed / blocked / requires_approval</p>
     </td>
     <td width="50%">
-      <img src="docs/screenshots/qa-sweep/07-usage.png" alt="Usage and cost analytics" />
-      <p align="center"><strong>Usage &amp; cost</strong> — tokens and spend broken down by provider and agent</p>
+      <img src="docs/screenshots/vault-qa-01-detail.png" alt="Credential vault with encrypted secrets" />
+      <p align="center"><strong>Credential vaults</strong> — AES-256-GCM encrypted secret storage, per-credential delete, audit trail</p>
+    </td>
+  </tr>
+  <tr>
+    <td width="50%">
+      <img src="docs/screenshots/qa-sweep/03-agents.png" alt="Agents list" />
+      <p align="center"><strong>Agents list</strong> — CRUD + archive; full 1:1 API mapping via REST + CLI</p>
+    </td>
+    <td width="50%">
+      <img src="docs/screenshots/qa-sweep/08-settings.png" alt="LLM provider management" />
+      <p align="center"><strong>LLM providers</strong> — Anthropic, OpenAI, Google, Mistral, Groq, Ollama, any OpenAI-compatible</p>
     </td>
   </tr>
 </table>
