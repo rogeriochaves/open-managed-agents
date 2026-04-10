@@ -842,6 +842,19 @@ export function QuickstartPage() {
     const yamlStr = toYaml(previewConfig);
     const jsonStr = JSON.stringify(previewConfig, null, 2);
 
+    // Anthropic-only skill detection: the templates ship with
+    // `skills: [{ type: "anthropic", skill_id: "web_search" }]` on
+    // a few research-oriented agents. Those skills only activate
+    // when the agent is running against Anthropic's Messages API
+    // — under OpenAI/Gemini/etc the engine passes them through
+    // but they quietly never fire. Surface a warning so users
+    // aren't surprised by silent "web_search didn't happen" runs.
+    const templateSkills = (selectedTemplate.config.skills as Array<{ type?: string; skill_id?: string }> | undefined) ?? [];
+    const anthropicSkills = templateSkills.filter((s) => s?.type === "anthropic");
+    const providerType = selectedProvider?.type;
+    const skillsUnavailable =
+      anthropicSkills.length > 0 && providerType && providerType !== "anthropic";
+
     return (
       <div>
         <button
@@ -870,6 +883,24 @@ export function QuickstartPage() {
           </Button>
         </div>
 
+        {skillsUnavailable && (
+          <div
+            role="alert"
+            className="mt-3 rounded-lg border border-amber-500/40 bg-amber-500/5 p-3 text-xs text-amber-700 dark:text-amber-400"
+          >
+            <div className="font-medium">
+              Heads up: this template uses Anthropic-only skills.
+            </div>
+            <div className="mt-1">
+              {anthropicSkills.map((s) => s.skill_id).join(", ")} only activates
+              when the agent runs against Anthropic. Your active provider is
+              <span className="font-mono"> {selectedProvider?.name}</span>, so
+              these skills will be ignored at runtime. The rest of the template
+              (system prompt, MCP connectors) still works — switch to an
+              Anthropic provider above if you need the built-in capabilities.
+            </div>
+          </div>
+        )}
         <div className="mt-4">
           <CodeBlock configs={{ YAML: yamlStr, JSON: jsonStr }} />
         </div>
