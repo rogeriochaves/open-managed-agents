@@ -824,8 +824,23 @@ export function QuickstartPage() {
 
   const renderTemplatePreview = () => {
     if (!selectedTemplate) return null;
-    const yamlStr = toYaml(selectedTemplate.config);
-    const jsonStr = JSON.stringify(selectedTemplate.config, null, 2);
+    // Show the template with the ACTIVE provider's model substituted
+    // in, so the preview reflects what will actually be created. Every
+    // template in TEMPLATES ships with `model: "claude-sonnet-4-6"`
+    // as the suggested default — which is wrong/confusing when the
+    // user's active provider is OpenAI / Gemini / local Ollama.
+    // handleUseTemplate() already passes `selectedModel ||
+    // tpl.model` on create, so the preview just needs to match.
+    const resolvedModel =
+      selectedModel ||
+      selectedProvider?.default_model ||
+      (selectedTemplate.config.model as string);
+    const previewConfig = {
+      ...selectedTemplate.config,
+      model: resolvedModel,
+    };
+    const yamlStr = toYaml(previewConfig);
+    const jsonStr = JSON.stringify(previewConfig, null, 2);
 
     return (
       <div>
