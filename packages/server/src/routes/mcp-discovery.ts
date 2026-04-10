@@ -247,7 +247,10 @@ export function registerMCPDiscoveryRoutes(app: OpenAPIHono) {
     const connector = CONNECTORS.find((r) => r.id === connectorId);
 
     if (!connector) {
-      throw new Error(`Connector ${connectorId} not found`);
+      throw Object.assign(
+        new Error(`Connector ${connectorId} not found`),
+        { status: 404, type: "not_found" }
+      );
     }
 
     return c.json(connector, 200);
