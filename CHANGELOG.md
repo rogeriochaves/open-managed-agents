@@ -20,15 +20,15 @@ All notable changes to this project are documented here. Format follows [Keep a 
   - **docker-compose** — validates `docker-compose.yml` parses with `docker compose config -q` and checks all expected services are declared.
 
 #### Tests
-Started this cycle at zero server/cli tests. Ended at **218 total**:
+Started this cycle at zero server/cli tests. Ended at **233 total**:
 
 | Package | Files | Tests |
 |---|:---:|:---:|
-| `@open-managed-agents/server` | 15 | 123 |
-| `@open-managed-agents/web` | 12 | 88 |
+| `@open-managed-agents/server` | 17 | 136 |
+| `@open-managed-agents/web` | 12 | 90 |
 | `@open-managed-agents/cli` | 1 | 5 |
 | `@open-managed-agents/scenario-tests` | 1 | 2 |
-| **Total** | **29** | **218** |
+| **Total** | **31** | **233** |
 
 Each new test file has a sibling `specs/*.feature` documenting the scenarios in Gherkin.
 
@@ -46,6 +46,9 @@ Each new test file has a sibling `specs/*.feature` documenting the scenarios in 
 - `server/destructive.test.ts` — archive + delete paths for sessions (with events cascade), vaults, environments.
 - `server/audit-auto.test.ts` — regression guard: every mutation writes a matching audit row.
 - `server/provider-access.test.ts` — team-scoped provider access enforcement (403 for non-member, 200 after team add, admin bypass) plus team-scoped MCP connector enforcement (default-allow, explicit block, requires_approval, re-allow).
+- `server/auth-guard.test.ts` — 16 cases: public paths pass, private paths 401, valid session cookie unlocks, Bearer + x-api-key headers also unlock, bogus tokens on any channel 401.
+- `server/agent-builder.test.ts` — 4 cases against a stubbed LLM: 503 when no provider, happy-path reply + parsed draft with `oma-draft` fence stripping, done=true flag, prior-draft preservation when the model forgets the fence.
+- `server/mcp-connections.test.ts` — 5 cases covering encrypted token storage, upsert-on-reconnect, unknown-connector 404, delete roundtrip, and a ciphertext assertion proving the token is not stored as plaintext.
 - `cli/client.test.ts` — CLI client points at self-hosted base URL; API key precedence.
 - `scripts/cli-smoke-test.sh` — end-to-end binary drives the live server through 5 subcommands.
 - `scenario-tests/agent-creation.scenario.test.ts` — live Claude + gpt-5-mini judge (opt-in, ~45s).
@@ -57,6 +60,12 @@ Each new test file has a sibling `specs/*.feature` documenting the scenarios in 
 - The final `CMD`/`EXPOSE` surface is unchanged so `docker-compose.yml` and the Helm chart keep working. `docker compose config -q` remains clean.
 
 #### Features
+- **Vercel AI SDK provider layer** — replaced the hand-rolled Anthropic + OpenAI classes with a single `AISDKProvider` wrapper over the `ai` package. This expands supported LLM providers from 2 to **7** out of the box: `anthropic`, `openai`, `google` (Gemini), `mistral`, `groq`, `openai-compatible` (OpenRouter / Together / LM Studio / vLLM), and `ollama` (via the openai-compatible driver pinned to `http://localhost:11434/v1`). The public `LLMProvider` interface is unchanged so the engine and all routes keep compiling. `seedDefaultProviders()` now sweeps a prioritized env-var list (`ANTHROPIC_API_KEY` → `OPENAI_API_KEY` → `GOOGLE_GENERATIVE_AI_API_KEY` → `MISTRAL_API_KEY` → `GROQ_API_KEY`) and always seeds a zero-config local Ollama row so self-hosters get a working LLM path without any cloud API keys. Dropped the legacy `CHECK(type IN (...))` constraint on `llm_providers.type` via an SQLite table-rebuild migration so existing DBs can insert the new provider types.
+- **Agent builder chat endpoint** — new `POST /v1/agent-builder/chat` drives the "Describe your agent" flow on the Quickstart page. Takes a conversation history + draft config, calls the configured default LLM, parses a fenced `oma-draft` JSON block out of the reply, merges it with the prior draft, and returns the natural-language reply (fence stripped) plus the updated draft and a `done` flag. Handles 503 when no provider is configured, preserves the prior draft when the model forgets the fence, surfaces the provider id/name so the UI can show "using Anthropic claude-sonnet-4-6", and is covered by a 4-case stubbed test in `agent-builder.test.ts`.
+- **Two-column Quickstart with a real chat pane** — `packages/web/src/pages/quickstart.tsx` was flattened from single-column with a fake one-shot input into Claude's actual two-column shape: persistent chat pane on the left (sticky textarea at the bottom, message bubbles above) and the templates grid / template preview / draft preview / "Agent created" panel on the right. Left pane submits to `/v1/agent-builder/chat` on every turn and carries conversation + draft state between turns. Right pane reveals a YAML/JSON draft preview with connector chips once the assistant drafts an agent; the "Create agent" CTA only activates when `done:true` is signaled. Extended `quickstart.test.tsx` from 11 → 13 tests covering real chat send + reply, draft preview rendering, and the 503 error path.
+- **MCP connector credential storage** — new `mcp_connections` table (org + connector unique) plus `POST /v1/mcp/connectors/:id/connect` with token body and `DELETE` to disconnect. Tokens are encrypted at rest with AES-256-GCM via `lib/encryption.encrypt()` and organization-scoped. The list endpoint now augments every connector with `connected: boolean` for the current org so the UI can render a green Connected badge. `MCPConnectorBrowser` grew a "Connect" button per card that opens a glassmorphic modal with a password-type token input; the card flips to a green badge that doubles as a disconnect button on hover. 5 new server tests in `mcp-connections.test.ts` + spec in `specs/mcp-connections.feature`. This replaces the previous purely cosmetic state where clicking a connector did literally nothing.
+- **LangWatch-style app shell restyle** — dropped the vibecoded orange-saturated look. The main content area is now a floating rounded card (`rounded-2xl border bg-white shadow-sm` with `my-2 mr-2` margin) sitting inside a gray-100 page background. The sidebar is flat gray, sections are grouped under uppercase small-caps labels (BUILD / MANAGE / ANALYTICS), active states use `bg-gray-100 + text-gray-900` instead of `bg-orange-50 + text-orange-700`, and the primary `Button` variant is dark graphite (`bg-gray-900`) instead of orange. Orange survives only on the logo mark. The `accent-blue` legacy alias in `index.css` now resolves to `gray-900`, which flips every user chat bubble, stepper active dot, focus ring, and dropdown-selected highlight to dark in one move.
+- **Auth-guard accepts Bearer + x-api-key headers** — `middleware/auth-guard.ts` now resolves the session token from three sources in precedence: `oma_session` cookie → `Authorization: Bearer <token>` → `x-api-key: <token>` (the Anthropic-SDK default, which is what the CLI already sends via `OMA_API_KEY`). All three map to the same opaque session token returned by `POST /v1/auth/login`, so a CLI user can `curl -X POST /v1/auth/login → export OMA_API_KEY=<cookie> → oma agents list` and land authenticated without any cookie jar juggling. 4 new test cases in `auth-guard.test.ts`.
 - **Global auth guard middleware** — new `packages/server/src/middleware/auth-guard.ts` is wired into `createApp()` right after CORS. Every non-public path requires a valid session cookie; public allowlist is `/`, `/health`, `/docs`, `/openapi.json`, `/v1/auth/login`, `/v1/auth/logout`, `/v1/auth/me`, `/v1/auth/sso-providers`. Honors `AUTH_ENABLED=false` as a dev/test opt-out. Bogus cookies are rejected; valid sessions are stashed on the Hono context as `c.get("user")` so downstream handlers skip a second DB lookup.
 - **SSO provider discovery** — `GET /v1/auth/sso-providers` returns each org's configured SSO provider + `login_url` so a login UI can render "Sign in with Okta / Google / …" buttons. The raw `sso_config` blob (which may contain secret fields like `client_secret_env`) is deliberately never exposed.
 - **Team-scoped provider access enforcement** — `POST /v1/sessions` now calls `canUseProvider()` and returns 403 if the caller is not on a team with an enabled `team_provider_access` row for the agent's provider. Admins bypass (no lockout).

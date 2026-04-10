@@ -57,10 +57,14 @@ Claude Managed Agents is great — but it's locked to Anthropic's cloud, Anthrop
 - **Agent Builder** — model selection, system prompts, tool configs (bash, edit, read, write, glob, grep, web_fetch, web_search), MCP servers, skills
 
 ### Multi-LLM Provider Support
-- **Anthropic** — Claude Opus, Sonnet, Haiku
-- **OpenAI** — GPT-4o, GPT-4o-mini, o3, o4
-- **OpenAI-compatible** — Any API following the OpenAI format (Azure OpenAI, Together, Groq, Fireworks, etc.)
-- **Ollama** — Local models (Llama 3, Mistral, CodeLlama, Phi, etc.)
+Powered by the Vercel AI SDK — 7 providers out of the box, same `LLMProvider` interface everywhere:
+- **Anthropic** — Claude Opus / Sonnet / Haiku
+- **OpenAI** — GPT-5, GPT-4.1, GPT-4o, o3
+- **Google Gemini** — Gemini 2.5 Pro / Flash
+- **Mistral** — Mistral Large / Medium / Small, Codestral
+- **Groq** — Llama 3.3 70B, Mixtral, Gemma 2
+- **OpenAI-compatible** — OpenRouter, Together, vLLM, LM Studio, Azure OpenAI, Fireworks, any OpenAI-format API
+- **Ollama** — Local models (Llama 3, Mistral, Qwen, Phi, Gemma — zero-config, pre-seeded at `http://localhost:11434/v1`)
 - Per-agent provider selection — each agent can use a different LLM provider
 - Provider management API — add, remove, list models
 
@@ -91,11 +95,11 @@ Every claim in this README is backed by an automated test. Running `pnpm test` e
 
 | Package | Tests | What it covers |
 |---|:---:|---|
-| `@open-managed-agents/server` | 123 | **Global auth guard** (public-path allowlist, 401 on unauth, session cookie unlock, bogus-token rejection), auth flow (login/logout/change-password + SSO discovery), agents (create/update/archive + metadata merge + versioning), sessions + events + archive + cascade delete, providers CRUD (Anthropic/OpenAI/OpenAI-compatible/Ollama), environments + MCP discovery + delete, vaults + AES-256-GCM encryption round-trip + archive + delete, usage & cost aggregation, governance IAC config loading, governance direct CRUD (orgs/teams/projects/members/policies/users/audit), Postgres SQL placeholder translator, automatic audit log writes on every mutation, team-scoped provider access enforcement, team-scoped MCP policy enforcement, audit log `details` JSON parsing |
-| `@open-managed-agents/web` | 88 | Sidebar, quickstart wizard, agents/sessions/environments/vaults/settings/usage pages, session detail with SSE streaming, API key dialog, MCP connector browser |
+| `@open-managed-agents/server` | 136 | **Global auth guard** (public-path allowlist, 401 on unauth, session cookie / Bearer / x-api-key unlock, bogus-token rejection), **agent builder chat** (real LLM round trip, fenced-draft parsing, 503 when no provider, done flag, prior-draft preservation), **MCP connector credential storage** (encrypted-at-rest tokens, upsert, connected flag, delete roundtrip), auth flow (login/logout/change-password + SSO discovery), agents (create/update/archive + metadata merge + versioning), sessions + events + archive + cascade delete, providers CRUD (Anthropic/OpenAI/Google/Mistral/Groq/OpenAI-compatible/Ollama via Vercel AI SDK), environments + MCP discovery + delete, vaults + AES-256-GCM encryption round-trip + archive + delete, usage & cost aggregation, governance IAC config loading, governance direct CRUD (orgs/teams/projects/members/policies/users/audit), Postgres SQL placeholder translator, automatic audit log writes on every mutation, team-scoped provider access enforcement, team-scoped MCP policy enforcement, audit log `details` JSON parsing |
+| `@open-managed-agents/web` | 90 | Sidebar with LangWatch-style sections, **two-column Quickstart** with real agent-builder chat (send/reply, draft preview, 503 error path), agents/sessions/environments/vaults/settings/usage pages, session detail with SSE streaming, API key dialog, MCP connector browser |
 | `@open-managed-agents/cli` | 5 | Client points at self-hosted server, not `api.anthropic.com`; API key precedence |
 | `@open-managed-agents/scenario-tests` | 2 | End-to-end agent creation flow against a live LLM via LangWatch Scenario (opt-in with `OMA_SCENARIO_ENABLED=1`) |
-| **Total** | **218** | |
+| **Total** | **233** | |
 
 GitHub Actions runs typecheck + tests + build + helm-lint on every PR, plus a smoke-test job that boots the production server with SQLite and drives the compiled `oma` binary against it end-to-end. See [`.github/workflows/ci.yml`](.github/workflows/ci.yml).
 
