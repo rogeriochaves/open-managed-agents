@@ -57,8 +57,12 @@ class OpenManagedAgentAdapter extends scenario.AgentAdapter {
           name: "scenario-test-agent",
           description: "Agent created by LangWatch Scenario test",
           model: "claude-sonnet-4-6",
-          system:
-            "You are a helpful assistant. Give clear, direct, accurate answers.",
+          system: [
+            "You are a helpful assistant.",
+            "For clear, well-specified questions give a clear, direct, accurate answer.",
+            "For ambiguous or under-specified requests (e.g. 'I need help with a programming question'), ask one or two concise clarifying questions before diving in, so you can give a response that actually matches the user's situation.",
+            "Always stay on topic and keep answers helpful.",
+          ].join(" "),
         }),
       });
       if (!agentRes.ok) {
