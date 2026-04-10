@@ -1,0 +1,45 @@
+version: 2
+
+updates:
+  # pnpm / npm dependencies across the whole monorepo
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "08:00"
+      timezone: "UTC"
+    open-pull-requests-limit: 10
+    labels:
+      - "dependencies"
+    groups:
+      # Batch minor/patch bumps into a single PR per week
+      minor-and-patch:
+        update-types:
+          - "minor"
+          - "patch"
+      # Major bumps get individual PRs so reviewers can look at each
+      # one separately — React/Tailwind/Vite majors deserve attention.
+      major:
+        update-types:
+          - "major"
+
+  # GitHub Actions used in .github/workflows/ci.yml
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    labels:
+      - "dependencies"
+      - "ci"
+
+  # Dockerfiles at the repo root
+  - package-ecosystem: "docker"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    labels:
+      - "dependencies"
+      - "docker"
