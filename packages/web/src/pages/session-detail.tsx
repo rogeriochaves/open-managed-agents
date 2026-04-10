@@ -8,6 +8,9 @@ import {
   Paperclip,
   Square,
   Clock,
+  Copy,
+  Download,
+  X,
 } from "lucide-react";
 import { Button } from "../components/ui/button";
 import { Badge, statusVariant } from "../components/ui/badge";
@@ -97,6 +100,7 @@ export function SessionDetailPage() {
   const [isStreaming, setIsStreaming] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [showSearch, setShowSearch] = useState(false);
+  const [selectedEvent, setSelectedEvent] = useState<any>(null);
   const eventsEndRef = useRef<HTMLDivElement>(null);
 
   const { data: session } = useQuery({
@@ -124,14 +128,22 @@ export function SessionDetailPage() {
     if (!sessionId || session?.status === "terminated") return;
 
     setIsStreaming(true);
+    const seenIds = new Set<string>();
     const stream = api.streamSessionEvents(
       sessionId,
       (event) => {
         setEvents((prev) => {
-          // Deduplicate by id
-          if ("id" in event && prev.some((e: any) => e.id === (event as any).id)) {
+          // Track all known IDs
+          if (seenIds.size === 0) {
+            for (const e of prev) {
+              if ((e as any).id) seenIds.add((e as any).id);
+            }
+          }
+          const eventId = (event as any).id;
+          if (eventId && seenIds.has(eventId)) {
             return prev;
           }
+          if (eventId) seenIds.add(eventId);
           return [...prev, event];
         });
       },
@@ -159,16 +171,7 @@ export function SessionDetailPage() {
       await api.sendSessionEvents(sessionId, {
         events: [{ type: "user.message", content: [{ type: "text", text }] }],
       });
-      // Optimistically add the event
-      setEvents((prev) => [
-        ...prev,
-        {
-          type: "user.message",
-          content: [{ type: "text", text }],
-          processed_at: new Date().toISOString(),
-          id: `local_${Date.now()}`,
-        },
-      ]);
+      // Events will arrive via SSE stream - no optimistic add needed
     } catch (err) {
       console.error("Failed to send:", err);
     }
@@ -282,13 +285,41 @@ export function SessionDetailPage() {
           <button
             onClick={() => setShowSearch((s) => !s)}
             className="cursor-pointer p-1 text-text-muted hover:text-text-primary"
+            title="Search events"
           >
             <Search className="h-4 w-4" />
+          </button>
+          <button
+            onClick={() => {
+              const text = events.map((e) => `[${e.type}] ${getEventContent(e)}`).join("\n");
+              navigator.clipboard.writeText(text);
+            }}
+            className="cursor-pointer p-1 text-text-muted hover:text-text-primary"
+            title="Copy all events"
+          >
+            <Copy className="h-4 w-4" />
+          </button>
+          <button
+            onClick={() => {
+              const json = JSON.stringify(events, null, 2);
+              const blob = new Blob([json], { type: "application/json" });
+              const url = URL.createObjectURL(blob);
+              const a = document.createElement("a");
+              a.href = url;
+              a.download = `session-${sessionId}-events.json`;
+              a.click();
+              URL.revokeObjectURL(url);
+            }}
+            className="cursor-pointer p-1 text-text-muted hover:text-text-primary"
+            title="Download events JSON"
+          >
+            <Download className="h-4 w-4" />
           </button>
         </div>
       </div>
 
-      {/* Events */}
+      {/* Events + Detail Panel */}
+      <div className="flex flex-1 overflow-hidden">
       <div className="flex-1 overflow-y-auto">
         {events.length === 0 ? (
           <div className="flex h-full items-center justify-center">
@@ -309,7 +340,8 @@ export function SessionDetailPage() {
               return (
                 <div
                   key={event.id ?? i}
-                  className="flex items-start gap-3 px-6 py-3"
+                  onClick={() => setSelectedEvent(event)}
+                  className={`flex items-start gap-3 px-6 py-3 cursor-pointer hover:bg-surface-hover transition-colors ${selectedEvent?.id === event.id ? "bg-surface-hover" : ""}`}
                 >
                   <Badge
                     variant={badge.variant as any}
@@ -343,7 +375,8 @@ export function SessionDetailPage() {
               return (
                 <div
                   key={event.id ?? i}
-                  className="flex items-start gap-3 px-6 py-2"
+                  onClick={() => setSelectedEvent(event)}
+                  className={`flex items-start gap-3 px-6 py-2 cursor-pointer hover:bg-surface-hover transition-colors ${selectedEvent?.id === event.id ? "bg-surface-hover" : ""}`}
                 >
                   <Badge
                     variant={badge.variant as any}
@@ -366,6 +399,124 @@ export function SessionDetailPage() {
           </div>
         )}
         <div ref={eventsEndRef} />
+      </div>
+
+      {/* Event Detail Side Panel */}
+      {selectedEvent && (
+        <div className="w-96 shrink-0 border-l border-surface-border overflow-y-auto">
+          <div className="flex items-center justify-between px-4 py-3 border-b border-surface-border">
+            <div className="flex items-center gap-2">
+              <Badge variant={getEventBadge(selectedEvent.type).variant as any}>
+                {getEventBadge(selectedEvent.type).label}
+              </Badge>
+              <span className="text-xs text-text-muted capitalize">
+                {selectedEvent.type.split(".").pop()}
+              </span>
+            </div>
+            <button
+              onClick={() => setSelectedEvent(null)}
+              className="cursor-pointer p-1 text-text-muted hover:text-text-primary"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          </div>
+          <div className="p-4 space-y-4">
+            {/* Timing */}
+            <div>
+              <span className="text-[10px] uppercase tracking-wider text-text-muted">Timing</span>
+              <div className="mt-1 text-xs text-text-secondary">
+                {selectedEvent.processed_at && (
+                  <span>{formatElapsed(sessionCreatedAt, selectedEvent.processed_at)}</span>
+                )}
+              </div>
+            </div>
+
+            {/* Content */}
+            {selectedEvent.content && (
+              <div>
+                <span className="text-[10px] uppercase tracking-wider text-text-muted">Content</span>
+                <div className="mt-1 text-sm text-text-primary whitespace-pre-wrap">
+                  {selectedEvent.content
+                    ?.filter((b: any) => b.type === "text")
+                    .map((b: any) => b.text)
+                    .join("") || "—"}
+                </div>
+              </div>
+            )}
+
+            {/* Tool info */}
+            {selectedEvent.name && (
+              <div>
+                <span className="text-[10px] uppercase tracking-wider text-text-muted">Tool</span>
+                <div className="mt-1 text-sm text-text-primary font-mono">{selectedEvent.name}</div>
+              </div>
+            )}
+
+            {/* Input */}
+            {selectedEvent.input && (
+              <div>
+                <span className="text-[10px] uppercase tracking-wider text-text-muted">Input</span>
+                <pre className="mt-1 text-xs text-text-secondary bg-surface-secondary rounded p-2 overflow-x-auto">
+                  {JSON.stringify(selectedEvent.input, null, 2)}
+                </pre>
+              </div>
+            )}
+
+            {/* Model usage */}
+            {selectedEvent.model_usage && (
+              <div>
+                <span className="text-[10px] uppercase tracking-wider text-text-muted">Model Usage</span>
+                <div className="mt-1 grid grid-cols-2 gap-2 text-xs">
+                  <div className="bg-surface-secondary rounded p-2">
+                    <span className="text-text-muted">Input</span>
+                    <div className="text-text-primary font-medium">{selectedEvent.model_usage.input_tokens}</div>
+                  </div>
+                  <div className="bg-surface-secondary rounded p-2">
+                    <span className="text-text-muted">Output</span>
+                    <div className="text-text-primary font-medium">{selectedEvent.model_usage.output_tokens}</div>
+                  </div>
+                  <div className="bg-surface-secondary rounded p-2">
+                    <span className="text-text-muted">Cache Read</span>
+                    <div className="text-text-primary font-medium">{selectedEvent.model_usage.cache_read_input_tokens ?? 0}</div>
+                  </div>
+                  <div className="bg-surface-secondary rounded p-2">
+                    <span className="text-text-muted">Cache Write</span>
+                    <div className="text-text-primary font-medium">{selectedEvent.model_usage.cache_creation_input_tokens ?? 0}</div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Stop reason */}
+            {selectedEvent.stop_reason && (
+              <div>
+                <span className="text-[10px] uppercase tracking-wider text-text-muted">Stop Reason</span>
+                <div className="mt-1 text-xs text-text-secondary">
+                  {selectedEvent.stop_reason.type}
+                </div>
+              </div>
+            )}
+
+            {/* Error */}
+            {selectedEvent.error && (
+              <div>
+                <span className="text-[10px] uppercase tracking-wider text-text-muted">Error</span>
+                <div className="mt-1 text-xs text-red-400">
+                  {selectedEvent.error.message}
+                </div>
+              </div>
+            )}
+
+            {/* Raw JSON */}
+            <div>
+              <span className="text-[10px] uppercase tracking-wider text-text-muted">Raw Event</span>
+              <pre className="mt-1 text-[10px] text-text-muted bg-surface-secondary rounded p-2 overflow-x-auto max-h-48">
+                {JSON.stringify(selectedEvent, null, 2)}
+              </pre>
+            </div>
+          </div>
+        </div>
+      )}
       </div>
 
       {/* Message input */}
