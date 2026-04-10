@@ -96,7 +96,7 @@ export function registerAuthRoutes(app: OpenAPIHono) {
       throw Object.assign(new Error("Invalid credentials"), { status: 401, type: "authentication_error" });
     }
 
-    const token = createSession(user.id);
+    const token = await createSession(user.id);
     setCookie(c, "oma_session", token, {
       httpOnly: true,
       secure: process.env.NODE_ENV === "production",
@@ -108,24 +108,24 @@ export function registerAuthRoutes(app: OpenAPIHono) {
     return c.json({ user }, 200);
   });
 
-  app.openapi(logoutRoute, (c) => {
+  app.openapi(logoutRoute, async (c) => {
     const token = getCookie(c, "oma_session");
     if (token) {
-      deleteSession(token);
+      await deleteSession(token);
     }
     deleteCookie(c, "oma_session", { path: "/" });
     return c.json({ ok: true }, 200);
   });
 
-  app.openapi(meRoute, (c) => {
+  app.openapi(meRoute, async (c) => {
     const token = getCookie(c, "oma_session");
-    const user = validateSession(token);
+    const user = await validateSession(token);
     return c.json({ user }, 200);
   });
 
   app.openapi(changePasswordRoute, async (c) => {
     const token = getCookie(c, "oma_session");
-    const user = validateSession(token);
+    const user = await validateSession(token);
     if (!user) {
       throw Object.assign(new Error("Not authenticated"), { status: 401, type: "authentication_error" });
     }

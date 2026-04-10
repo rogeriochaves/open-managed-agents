@@ -132,7 +132,7 @@ function rowToAgent(row: any): any {
 export function registerAgentRoutes(app: OpenAPIHono) {
   app.openapi(createAgentRoute, async (c) => {
     const body = c.req.valid("json") as any;
-    const db = getDB();
+    const db = await getDB();
     const id = newId("agent");
     const now = new Date().toISOString();
 
@@ -142,10 +142,9 @@ export function registerAgentRoutes(app: OpenAPIHono) {
       typeof body.model === "object" ? body.model?.speed ?? "standard" : "standard";
     const modelProviderId = body.model_provider_id ?? null;
 
-    db.prepare(`
-      INSERT INTO agents (id, name, description, system, model_id, model_speed, model_provider_id, tools, mcp_servers, skills, metadata, version, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)
-    `).run(
+    await db.run(
+      `INSERT INTO agents (id, name, description, system, model_id, model_speed, model_provider_id, tools, mcp_servers, skills, metadata, version, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)`,
       id,
       body.name,
       body.description ?? null,
@@ -161,14 +160,14 @@ export function registerAgentRoutes(app: OpenAPIHono) {
       now
     );
 
-    const row = db.prepare("SELECT * FROM agents WHERE id = ?").get(id);
+    const row = await db.get("SELECT * FROM agents WHERE id = ?", id);
     return c.json(rowToAgent(row), 200);
   });
 
   app.openapi(retrieveAgentRoute, async (c) => {
     const { agentId } = c.req.valid("param");
-    const db = getDB();
-    const row = db.prepare("SELECT * FROM agents WHERE id = ?").get(agentId);
+    const db = await getDB();
+    const row = await db.get("SELECT * FROM agents WHERE id = ?", agentId);
 
     if (!row) {
       throw Object.assign(new Error(`Agent ${agentId} not found`), { status: 404, type: "not_found" });
@@ -180,9 +179,9 @@ export function registerAgentRoutes(app: OpenAPIHono) {
   app.openapi(updateAgentRoute, async (c) => {
     const { agentId } = c.req.valid("param");
     const body = c.req.valid("json") as any;
-    const db = getDB();
+    const db = await getDB();
 
-    const existing = db.prepare("SELECT * FROM agents WHERE id = ?").get(agentId) as any;
+    const existing = await db.get<any>("SELECT * FROM agents WHERE id = ?", agentId);
     if (!existing) {
       throw Object.assign(new Error(`Agent ${agentId} not found`), { status: 404, type: "not_found" });
     }
@@ -232,21 +231,21 @@ export function registerAgentRoutes(app: OpenAPIHono) {
     }
 
     updates.push("version = version + 1");
-    updates.push("updated_at = datetime('now')");
+    updates.push("updated_at = ?");
+    values.push(new Date().toISOString());
     values.push(agentId);
 
-    db.prepare(`UPDATE agents SET ${updates.join(", ")} WHERE id = ?`).run(...values);
+    await db.run(`UPDATE agents SET ${updates.join(", ")} WHERE id = ?`, ...values);
 
-    const row = db.prepare("SELECT * FROM agents WHERE id = ?").get(agentId);
+    const row = await db.get("SELECT * FROM agents WHERE id = ?", agentId);
     return c.json(rowToAgent(row), 200);
   });
 
   app.openapi(listAgentsRoute, async (c) => {
     const query = c.req.valid("query") as any;
-    const db = getDB();
+    const db = await getDB();
 
     const conditions: string[] = [];
-    const values: any[] = [];
 
     if (!query.include_archived) {
       conditions.push("archived_at IS NULL");
@@ -255,9 +254,10 @@ export function registerAgentRoutes(app: OpenAPIHono) {
     const where = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
     const limit = Math.min(query.limit ?? 20, 100);
 
-    const rows = db
-      .prepare(`SELECT * FROM agents ${where} ORDER BY created_at DESC LIMIT ?`)
-      .all(...values, limit + 1) as any[];
+    const rows = await db.all<any>(
+      `SELECT * FROM agents ${where} ORDER BY created_at DESC LIMIT ?`,
+      limit + 1
+    );
 
     const hasMore = rows.length > limit;
     const data = rows.slice(0, limit).map(rowToAgent);
@@ -275,13 +275,17 @@ export function registerAgentRoutes(app: OpenAPIHono) {
 
   app.openapi(archiveAgentRoute, async (c) => {
     const { agentId } = c.req.valid("param");
-    const db = getDB();
+    const db = await getDB();
+    const now = new Date().toISOString();
 
-    db.prepare(
-      "UPDATE agents SET archived_at = datetime('now'), updated_at = datetime('now') WHERE id = ?"
-    ).run(agentId);
+    await db.run(
+      "UPDATE agents SET archived_at = ?, updated_at = ? WHERE id = ?",
+      now,
+      now,
+      agentId
+    );
 
-    const row = db.prepare("SELECT * FROM agents WHERE id = ?").get(agentId);
+    const row = await db.get("SELECT * FROM agents WHERE id = ?", agentId);
     if (!row) {
       throw Object.assign(new Error(`Agent ${agentId} not found`), { status: 404, type: "not_found" });
     }

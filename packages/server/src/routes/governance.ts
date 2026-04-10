@@ -154,64 +154,82 @@ function rowClean(row: any) {
 // ── Register ───────────────────────────────────────────────────────────────
 
 export function registerGovernanceRoutes(app: OpenAPIHono) {
-  const db = getDB();
-
   // Organizations
-  app.openapi(listOrgsRoute, (c) => {
-    const rows = db.prepare("SELECT * FROM organizations ORDER BY name").all();
+  app.openapi(listOrgsRoute, async (c) => {
+    const db = await getDB();
+    const rows = await db.all<any>("SELECT * FROM organizations ORDER BY name");
     return c.json({ data: rows.map(rowClean) }, 200);
   });
 
-  app.openapi(createOrgRoute, (c) => {
+  app.openapi(createOrgRoute, async (c) => {
+    const db = await getDB();
     const body = c.req.valid("json") as any;
     const id = newId("org");
     const now = new Date().toISOString();
-    db.prepare("INSERT INTO organizations (id, name, slug, logo_url, sso_provider, sso_config, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?)").run(id, body.name, body.slug, body.logo_url ?? null, body.sso_provider ?? null, body.sso_config ? JSON.stringify(body.sso_config) : null, now, now);
-    return c.json(rowClean(db.prepare("SELECT * FROM organizations WHERE id = ?").get(id)), 200);
+    await db.run(
+      "INSERT INTO organizations (id, name, slug, logo_url, sso_provider, sso_config, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?)",
+      id, body.name, body.slug, body.logo_url ?? null, body.sso_provider ?? null, body.sso_config ? JSON.stringify(body.sso_config) : null, now, now
+    );
+    const row = await db.get("SELECT * FROM organizations WHERE id = ?", id);
+    return c.json(rowClean(row), 200);
   });
 
   // Teams
-  app.openapi(listTeamsRoute, (c) => {
+  app.openapi(listTeamsRoute, async (c) => {
+    const db = await getDB();
     const { orgId } = c.req.valid("param");
-    const rows = db.prepare("SELECT * FROM teams WHERE organization_id = ? ORDER BY name").all(orgId);
+    const rows = await db.all<any>("SELECT * FROM teams WHERE organization_id = ? ORDER BY name", orgId);
     return c.json({ data: rows.map(rowClean) }, 200);
   });
 
-  app.openapi(createTeamRoute, (c) => {
+  app.openapi(createTeamRoute, async (c) => {
+    const db = await getDB();
     const { orgId } = c.req.valid("param");
     const body = c.req.valid("json") as any;
     const id = newId("team");
     const now = new Date().toISOString();
-    db.prepare("INSERT INTO teams (id, organization_id, name, slug, description, created_at, updated_at) VALUES (?,?,?,?,?,?,?)").run(id, orgId, body.name, body.slug, body.description ?? null, now, now);
-    return c.json(rowClean(db.prepare("SELECT * FROM teams WHERE id = ?").get(id)), 200);
+    await db.run(
+      "INSERT INTO teams (id, organization_id, name, slug, description, created_at, updated_at) VALUES (?,?,?,?,?,?,?)",
+      id, orgId, body.name, body.slug, body.description ?? null, now, now
+    );
+    const row = await db.get("SELECT * FROM teams WHERE id = ?", id);
+    return c.json(rowClean(row), 200);
   });
 
   // Projects
-  app.openapi(listProjectsRoute, (c) => {
+  app.openapi(listProjectsRoute, async (c) => {
+    const db = await getDB();
     const { teamId } = c.req.valid("param");
-    const rows = db.prepare("SELECT * FROM projects WHERE team_id = ? ORDER BY name").all(teamId);
+    const rows = await db.all<any>("SELECT * FROM projects WHERE team_id = ? ORDER BY name", teamId);
     return c.json({ data: rows.map(rowClean) }, 200);
   });
 
-  app.openapi(createProjectRoute, (c) => {
+  app.openapi(createProjectRoute, async (c) => {
+    const db = await getDB();
     const { teamId } = c.req.valid("param");
     const body = c.req.valid("json") as any;
     const id = newId("proj");
     const now = new Date().toISOString();
-    db.prepare("INSERT INTO projects (id, team_id, name, slug, description, created_at, updated_at) VALUES (?,?,?,?,?,?,?)").run(id, teamId, body.name, body.slug, body.description ?? null, now, now);
-    return c.json(rowClean(db.prepare("SELECT * FROM projects WHERE id = ?").get(id)), 200);
+    await db.run(
+      "INSERT INTO projects (id, team_id, name, slug, description, created_at, updated_at) VALUES (?,?,?,?,?,?,?)",
+      id, teamId, body.name, body.slug, body.description ?? null, now, now
+    );
+    const row = await db.get("SELECT * FROM projects WHERE id = ?", id);
+    return c.json(rowClean(row), 200);
   });
 
   // Team members
-  app.openapi(listMembersRoute, (c) => {
+  app.openapi(listMembersRoute, async (c) => {
+    const db = await getDB();
     const { teamId } = c.req.valid("param");
-    const rows = db.prepare(`
-      SELECT tm.*, u.email, u.name as user_name, u.role as user_role, u.avatar_url
-      FROM team_members tm
-      LEFT JOIN users u ON u.id = tm.user_id
-      WHERE tm.team_id = ?
-      ORDER BY tm.created_at
-    `).all(teamId) as any[];
+    const rows = await db.all<any>(
+      `SELECT tm.*, u.email, u.name as user_name, u.role as user_role, u.avatar_url
+       FROM team_members tm
+       LEFT JOIN users u ON u.id = tm.user_id
+       WHERE tm.team_id = ?
+       ORDER BY tm.created_at`,
+      teamId
+    );
 
     const members = rows.map((r) => ({
       id: r.id, team_id: r.team_id, user_id: r.user_id, role: r.role, created_at: r.created_at,
@@ -220,26 +238,47 @@ export function registerGovernanceRoutes(app: OpenAPIHono) {
     return c.json({ data: members }, 200);
   });
 
-  app.openapi(addMemberRoute, (c) => {
+  app.openapi(addMemberRoute, async (c) => {
+    const db = await getDB();
     const { teamId } = c.req.valid("param");
     const body = c.req.valid("json") as any;
-    const id = newId("tm");
     const now = new Date().toISOString();
-    db.prepare("INSERT OR REPLACE INTO team_members (id, team_id, user_id, role, created_at) VALUES (?,?,?,?,?)").run(id, teamId, body.user_id, body.role ?? "member", now);
-    return c.json(rowClean(db.prepare("SELECT * FROM team_members WHERE id = ?").get(id)), 200);
+    // Portable upsert: check-then-update-or-insert
+    const existing = await db.get<any>(
+      "SELECT id FROM team_members WHERE team_id = ? AND user_id = ?",
+      teamId, body.user_id
+    );
+    let id: string;
+    if (existing) {
+      id = existing.id;
+      await db.run("UPDATE team_members SET role = ? WHERE id = ?", body.role ?? "member", id);
+    } else {
+      id = newId("tm");
+      await db.run(
+        "INSERT INTO team_members (id, team_id, user_id, role, created_at) VALUES (?,?,?,?,?)",
+        id, teamId, body.user_id, body.role ?? "member", now
+      );
+    }
+    const row = await db.get("SELECT * FROM team_members WHERE id = ?", id);
+    return c.json(rowClean(row), 200);
   });
 
   // Provider access
-  app.openapi(listProviderAccessRoute, (c) => {
+  app.openapi(listProviderAccessRoute, async (c) => {
+    const db = await getDB();
     const { teamId } = c.req.valid("param");
-    const rows = db.prepare("SELECT * FROM team_provider_access WHERE team_id = ?").all(teamId);
+    const rows = await db.all<any>("SELECT * FROM team_provider_access WHERE team_id = ?", teamId);
     return c.json({ data: rows.map(rowClean) }, 200);
   });
 
-  app.openapi(setProviderAccessRoute, (c) => {
+  app.openapi(setProviderAccessRoute, async (c) => {
+    const db = await getDB();
     const { teamId } = c.req.valid("param");
     const body = c.req.valid("json") as any;
-    const existing = db.prepare("SELECT * FROM team_provider_access WHERE team_id = ? AND provider_id = ?").get(teamId, body.provider_id) as any;
+    const existing = await db.get<any>(
+      "SELECT * FROM team_provider_access WHERE team_id = ? AND provider_id = ?",
+      teamId, body.provider_id
+    );
 
     if (existing) {
       const updates: string[] = [];
@@ -249,61 +288,91 @@ export function registerGovernanceRoutes(app: OpenAPIHono) {
       if (body.monthly_budget_usd !== undefined) { updates.push("monthly_budget_usd = ?"); values.push(body.monthly_budget_usd); }
       if (updates.length > 0) {
         values.push(existing.id);
-        db.prepare(`UPDATE team_provider_access SET ${updates.join(", ")} WHERE id = ?`).run(...values);
+        await db.run(`UPDATE team_provider_access SET ${updates.join(", ")} WHERE id = ?`, ...values);
       }
-      return c.json(rowClean(db.prepare("SELECT * FROM team_provider_access WHERE id = ?").get(existing.id)), 200);
+      const row = await db.get("SELECT * FROM team_provider_access WHERE id = ?", existing.id);
+      return c.json(rowClean(row), 200);
     }
 
     const id = newId("tpa");
-    db.prepare("INSERT INTO team_provider_access (id, team_id, provider_id, enabled, rate_limit_rpm, monthly_budget_usd) VALUES (?,?,?,?,?,?)").run(id, teamId, body.provider_id, body.enabled !== false ? 1 : 0, body.rate_limit_rpm ?? null, body.monthly_budget_usd ?? null);
-    return c.json(rowClean(db.prepare("SELECT * FROM team_provider_access WHERE id = ?").get(id)), 200);
+    await db.run(
+      "INSERT INTO team_provider_access (id, team_id, provider_id, enabled, rate_limit_rpm, monthly_budget_usd) VALUES (?,?,?,?,?,?)",
+      id, teamId, body.provider_id, body.enabled !== false ? 1 : 0, body.rate_limit_rpm ?? null, body.monthly_budget_usd ?? null
+    );
+    const row = await db.get("SELECT * FROM team_provider_access WHERE id = ?", id);
+    return c.json(rowClean(row), 200);
   });
 
   // MCP policies
-  app.openapi(listMCPPoliciesRoute, (c) => {
+  app.openapi(listMCPPoliciesRoute, async (c) => {
+    const db = await getDB();
     const { teamId } = c.req.valid("param");
-    const rows = db.prepare("SELECT * FROM team_mcp_policies WHERE team_id = ?").all(teamId);
+    const rows = await db.all<any>("SELECT * FROM team_mcp_policies WHERE team_id = ?", teamId);
     return c.json({ data: rows.map(rowClean) }, 200);
   });
 
-  app.openapi(setMCPPolicyRoute, (c) => {
+  app.openapi(setMCPPolicyRoute, async (c) => {
+    const db = await getDB();
     const { teamId } = c.req.valid("param");
     const body = c.req.valid("json") as any;
-    const existing = db.prepare("SELECT * FROM team_mcp_policies WHERE team_id = ? AND connector_id = ?").get(teamId, body.connector_id) as any;
+    const existing = await db.get<any>(
+      "SELECT * FROM team_mcp_policies WHERE team_id = ? AND connector_id = ?",
+      teamId, body.connector_id
+    );
 
     if (existing) {
-      db.prepare("UPDATE team_mcp_policies SET policy = ? WHERE id = ?").run(body.policy, existing.id);
-      return c.json(rowClean(db.prepare("SELECT * FROM team_mcp_policies WHERE id = ?").get(existing.id)), 200);
+      await db.run("UPDATE team_mcp_policies SET policy = ? WHERE id = ?", body.policy, existing.id);
+      const row = await db.get("SELECT * FROM team_mcp_policies WHERE id = ?", existing.id);
+      return c.json(rowClean(row), 200);
     }
 
     const id = newId("mcp_pol");
-    db.prepare("INSERT INTO team_mcp_policies (id, team_id, connector_id, policy) VALUES (?,?,?,?)").run(id, teamId, body.connector_id, body.policy);
-    return c.json(rowClean(db.prepare("SELECT * FROM team_mcp_policies WHERE id = ?").get(id)), 200);
+    await db.run(
+      "INSERT INTO team_mcp_policies (id, team_id, connector_id, policy) VALUES (?,?,?,?)",
+      id, teamId, body.connector_id, body.policy
+    );
+    const row = await db.get("SELECT * FROM team_mcp_policies WHERE id = ?", id);
+    return c.json(rowClean(row), 200);
   });
 
   // Users
-  app.openapi(listUsersRoute, (c) => {
-    const rows = db.prepare("SELECT id, email, name, role, organization_id, avatar_url, created_at, updated_at FROM users ORDER BY name").all();
+  app.openapi(listUsersRoute, async (c) => {
+    const db = await getDB();
+    const rows = await db.all<any>(
+      "SELECT id, email, name, role, organization_id, avatar_url, created_at, updated_at FROM users ORDER BY name"
+    );
     return c.json({ data: rows.map(rowClean) }, 200);
   });
 
-  app.openapi(createUserRoute, (c) => {
+  app.openapi(createUserRoute, async (c) => {
+    const db = await getDB();
     const body = c.req.valid("json") as any;
     const id = newId("user");
     const now = new Date().toISOString();
-    db.prepare("INSERT INTO users (id, email, name, role, organization_id, created_at, updated_at) VALUES (?,?,?,?,?,?,?)").run(id, body.email, body.name, body.role ?? "member", body.organization_id ?? "org_default", now, now);
-    return c.json(rowClean(db.prepare("SELECT id, email, name, role, organization_id, avatar_url, created_at, updated_at FROM users WHERE id = ?").get(id)), 200);
+    await db.run(
+      "INSERT INTO users (id, email, name, role, organization_id, created_at, updated_at) VALUES (?,?,?,?,?,?,?)",
+      id, body.email, body.name, body.role ?? "member", body.organization_id ?? "org_default", now, now
+    );
+    const row = await db.get(
+      "SELECT id, email, name, role, organization_id, avatar_url, created_at, updated_at FROM users WHERE id = ?",
+      id
+    );
+    return c.json(rowClean(row), 200);
   });
 
   // Audit log
-  app.openapi(listAuditLogRoute, (c) => {
+  app.openapi(listAuditLogRoute, async (c) => {
+    const db = await getDB();
     const query = c.req.valid("query") as any;
     const limit = Math.min(query.limit ?? 50, 500);
     const conditions: string[] = [];
     const values: any[] = [];
     if (query.resource_type) { conditions.push("resource_type = ?"); values.push(query.resource_type); }
     const where = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
-    const rows = db.prepare(`SELECT * FROM audit_log ${where} ORDER BY created_at DESC LIMIT ?`).all(...values, limit);
+    const rows = await db.all<any>(
+      `SELECT * FROM audit_log ${where} ORDER BY created_at DESC LIMIT ?`,
+      ...values, limit
+    );
     return c.json({ data: rows.map(rowClean) }, 200);
   });
 }
@@ -311,8 +380,17 @@ export function registerGovernanceRoutes(app: OpenAPIHono) {
 /**
  * Log an action to the audit log.
  */
-export function auditLog(userId: string | null, action: string, resourceType: string, resourceId?: string, details?: string) {
-  const db = getDB();
+export async function auditLog(
+  userId: string | null,
+  action: string,
+  resourceType: string,
+  resourceId?: string,
+  details?: string
+) {
+  const db = await getDB();
   const id = newId("audit");
-  db.prepare("INSERT INTO audit_log (id, user_id, action, resource_type, resource_id, details) VALUES (?,?,?,?,?,?)").run(id, userId, action, resourceType, resourceId ?? null, details ?? null);
+  await db.run(
+    "INSERT INTO audit_log (id, user_id, action, resource_type, resource_id, details) VALUES (?,?,?,?,?,?)",
+    id, userId, action, resourceType, resourceId ?? null, details ?? null
+  );
 }

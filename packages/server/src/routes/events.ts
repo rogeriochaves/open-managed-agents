@@ -112,7 +112,7 @@ export function registerEventRoutes(app: OpenAPIHono) {
   app.openapi(listEventsRoute, async (c) => {
     const { sessionId } = c.req.valid("param");
     const query = c.req.valid("query") as any;
-    const db = getDB();
+    const db = await getDB();
 
     const order = query.order === "desc" ? "DESC" : "ASC";
     const limit = Math.min(query.limit ?? 100, 1000);
@@ -121,9 +121,10 @@ export function registerEventRoutes(app: OpenAPIHono) {
     const values: any[] = [sessionId];
 
     if (query.after_id) {
-      const afterRow = db
-        .prepare("SELECT processed_at FROM events WHERE id = ?")
-        .get(query.after_id) as any;
+      const afterRow = await db.get<any>(
+        "SELECT processed_at FROM events WHERE id = ?",
+        query.after_id
+      );
       if (afterRow) {
         conditions.push("processed_at > ?");
         values.push(afterRow.processed_at);
@@ -131,9 +132,10 @@ export function registerEventRoutes(app: OpenAPIHono) {
     }
 
     if (query.before_id) {
-      const beforeRow = db
-        .prepare("SELECT processed_at FROM events WHERE id = ?")
-        .get(query.before_id) as any;
+      const beforeRow = await db.get<any>(
+        "SELECT processed_at FROM events WHERE id = ?",
+        query.before_id
+      );
       if (beforeRow) {
         conditions.push("processed_at < ?");
         values.push(beforeRow.processed_at);
@@ -141,11 +143,11 @@ export function registerEventRoutes(app: OpenAPIHono) {
     }
 
     const where = `WHERE ${conditions.join(" AND ")}`;
-    const rows = db
-      .prepare(
-        `SELECT * FROM events ${where} ORDER BY processed_at ${order} LIMIT ?`
-      )
-      .all(...values, limit + 1) as any[];
+    const rows = await db.all<any>(
+      `SELECT * FROM events ${where} ORDER BY processed_at ${order} LIMIT ?`,
+      ...values,
+      limit + 1
+    );
 
     const hasMore = rows.length > limit;
     const data = rows.slice(0, limit).map(rowToEvent);
@@ -164,12 +166,10 @@ export function registerEventRoutes(app: OpenAPIHono) {
   app.openapi(sendEventsRoute, async (c) => {
     const { sessionId } = c.req.valid("param");
     const body = c.req.valid("json") as any;
-    const db = getDB();
+    const db = await getDB();
 
     // Get session and agent config
-    const session = db
-      .prepare("SELECT * FROM sessions WHERE id = ?")
-      .get(sessionId) as any;
+    const session = await db.get<any>("SELECT * FROM sessions WHERE id = ?", sessionId);
 
     if (!session) {
       throw Object.assign(new Error(`Session ${sessionId} not found`), { status: 404, type: "not_found" });
@@ -193,9 +193,10 @@ export function registerEventRoutes(app: OpenAPIHono) {
       if (evt.deny_message) eventData.deny_message = evt.deny_message;
       if (evt.is_error !== undefined) eventData.is_error = evt.is_error;
 
-      db.prepare(
-        "INSERT INTO events (id, session_id, type, data, processed_at) VALUES (?, ?, ?, ?, ?)"
-      ).run(id, sessionId, evt.type, JSON.stringify(eventData), processed_at);
+      await db.run(
+        "INSERT INTO events (id, session_id, type, data, processed_at) VALUES (?, ?, ?, ?, ?)",
+        id, sessionId, evt.type, JSON.stringify(eventData), processed_at
+      );
 
       const stored = { id, type: evt.type, ...eventData, processed_at };
       storedEvents.push(stored);
@@ -212,7 +213,7 @@ export function registerEventRoutes(app: OpenAPIHono) {
 
     if (hasUserMessage) {
       // Resolve provider
-      const providerConfig = getProviderConfig(agentSnapshot.model_provider_id);
+      const providerConfig = await getProviderConfig(agentSnapshot.model_provider_id);
       if (providerConfig) {
         const provider = createProvider(providerConfig);
         const agentConfig = {
@@ -247,18 +248,16 @@ export function registerEventRoutes(app: OpenAPIHono) {
     const { sessionId } = c.req.valid("param");
 
     const encoder = new TextEncoder();
+    // Load existing events before building the stream so we can use async I/O.
+    const db = await getDB();
+    const existingRows = await db.all<any>(
+      "SELECT * FROM events WHERE session_id = ? ORDER BY processed_at ASC",
+      sessionId
+    );
 
     const stream = new ReadableStream({
       start(controller) {
-        // Send existing events first
-        const db = getDB();
-        const rows = db
-          .prepare(
-            "SELECT * FROM events WHERE session_id = ? ORDER BY processed_at ASC"
-          )
-          .all(sessionId) as any[];
-
-        for (const row of rows) {
+        for (const row of existingRows) {
           const event = rowToEvent(row);
           controller.enqueue(
             encoder.encode(`data: ${JSON.stringify(event)}\n\n`)

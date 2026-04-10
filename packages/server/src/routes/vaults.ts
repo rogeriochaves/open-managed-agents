@@ -79,18 +79,21 @@ function rowToCredential(row: any) {
 export function registerVaultRoutes(app: OpenAPIHono) {
   app.openapi(createVaultRoute, async (c) => {
     const body = c.req.valid("json") as any;
-    const db = getDB();
+    const db = await getDB();
     const id = newId("vault");
     const now = new Date().toISOString();
-    db.prepare("INSERT INTO vaults (id, name, description, metadata, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)").run(id, body.display_name ?? body.name, body.description ?? null, JSON.stringify(body.metadata ?? {}), now, now);
-    const row = db.prepare("SELECT * FROM vaults WHERE id = ?").get(id);
+    await db.run(
+      "INSERT INTO vaults (id, name, description, metadata, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
+      id, body.display_name ?? body.name, body.description ?? null, JSON.stringify(body.metadata ?? {}), now, now
+    );
+    const row = await db.get("SELECT * FROM vaults WHERE id = ?", id);
     return c.json(rowToVault(row), 200);
   });
 
   app.openapi(retrieveVaultRoute, async (c) => {
     const { vaultId } = c.req.valid("param");
-    const db = getDB();
-    const row = db.prepare("SELECT * FROM vaults WHERE id = ?").get(vaultId);
+    const db = await getDB();
+    const row = await db.get("SELECT * FROM vaults WHERE id = ?", vaultId);
     if (!row) throw Object.assign(new Error(`Vault ${vaultId} not found`), { status: 404, type: "not_found" });
     return c.json(rowToVault(row), 200);
   });
@@ -98,25 +101,30 @@ export function registerVaultRoutes(app: OpenAPIHono) {
   app.openapi(updateVaultRoute, async (c) => {
     const { vaultId } = c.req.valid("param");
     const body = c.req.valid("json") as any;
-    const db = getDB();
+    const db = await getDB();
     const updates: string[] = [];
     const values: any[] = [];
     if (body.name !== undefined) { updates.push("name = ?"); values.push(body.name); }
     if (body.description !== undefined) { updates.push("description = ?"); values.push(body.description); }
-    if (updates.length > 0) { updates.push("updated_at = datetime('now')"); values.push(vaultId); db.prepare(`UPDATE vaults SET ${updates.join(", ")} WHERE id = ?`).run(...values); }
-    const row = db.prepare("SELECT * FROM vaults WHERE id = ?").get(vaultId);
+    if (updates.length > 0) {
+      updates.push("updated_at = ?");
+      values.push(new Date().toISOString());
+      values.push(vaultId);
+      await db.run(`UPDATE vaults SET ${updates.join(", ")} WHERE id = ?`, ...values);
+    }
+    const row = await db.get("SELECT * FROM vaults WHERE id = ?", vaultId);
     if (!row) throw Object.assign(new Error(`Vault ${vaultId} not found`), { status: 404, type: "not_found" });
     return c.json(rowToVault(row), 200);
   });
 
   app.openapi(listVaultsRoute, async (c) => {
     const query = c.req.valid("query") as any;
-    const db = getDB();
+    const db = await getDB();
     const conditions: string[] = [];
     if (!query.include_archived) conditions.push("archived_at IS NULL");
     const where = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
     const limit = Math.min(query.limit ?? 20, 100);
-    const rows = db.prepare(`SELECT * FROM vaults ${where} ORDER BY created_at DESC LIMIT ?`).all(limit + 1) as any[];
+    const rows = await db.all<any>(`SELECT * FROM vaults ${where} ORDER BY created_at DESC LIMIT ?`, limit + 1);
     const hasMore = rows.length > limit;
     const data = rows.slice(0, limit).map(rowToVault);
     return c.json({ data, has_more: hasMore, first_id: data[0]?.id ?? null, last_id: data[data.length - 1]?.id ?? null }, 200);
@@ -124,17 +132,18 @@ export function registerVaultRoutes(app: OpenAPIHono) {
 
   app.openapi(deleteVaultRoute, async (c) => {
     const { vaultId } = c.req.valid("param");
-    const db = getDB();
-    db.prepare("DELETE FROM credentials WHERE vault_id = ?").run(vaultId);
-    db.prepare("DELETE FROM vaults WHERE id = ?").run(vaultId);
+    const db = await getDB();
+    await db.run("DELETE FROM credentials WHERE vault_id = ?", vaultId);
+    await db.run("DELETE FROM vaults WHERE id = ?", vaultId);
     return c.json({ id: vaultId, type: "vault_deleted" }, 200);
   });
 
   app.openapi(archiveVaultRoute, async (c) => {
     const { vaultId } = c.req.valid("param");
-    const db = getDB();
-    db.prepare("UPDATE vaults SET archived_at = datetime('now'), updated_at = datetime('now') WHERE id = ?").run(vaultId);
-    const row = db.prepare("SELECT * FROM vaults WHERE id = ?").get(vaultId);
+    const db = await getDB();
+    const now = new Date().toISOString();
+    await db.run("UPDATE vaults SET archived_at = ?, updated_at = ? WHERE id = ?", now, now, vaultId);
+    const row = await db.get("SELECT * FROM vaults WHERE id = ?", vaultId);
     if (!row) throw Object.assign(new Error(`Vault ${vaultId} not found`), { status: 404, type: "not_found" });
     return c.json(rowToVault(row), 200);
   });
@@ -142,27 +151,30 @@ export function registerVaultRoutes(app: OpenAPIHono) {
   // Credentials
   app.openapi(listCredentialsRoute, async (c) => {
     const { vaultId } = c.req.valid("param");
-    const db = getDB();
-    const rows = db.prepare("SELECT * FROM credentials WHERE vault_id = ? ORDER BY created_at DESC").all(vaultId) as any[];
+    const db = await getDB();
+    const rows = await db.all<any>("SELECT * FROM credentials WHERE vault_id = ? ORDER BY created_at DESC", vaultId);
     return c.json({ data: rows.map(rowToCredential) }, 200);
   });
 
   app.openapi(createCredentialRoute, async (c) => {
     const { vaultId } = c.req.valid("param");
     const body = c.req.valid("json") as any;
-    const db = getDB();
+    const db = await getDB();
     const id = newId("cred");
     const now = new Date().toISOString();
     const encrypted = encrypt(body.value);
-    db.prepare("INSERT INTO credentials (id, vault_id, name, value_encrypted, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)").run(id, vaultId, body.name, encrypted, now, now);
-    const row = db.prepare("SELECT * FROM credentials WHERE id = ?").get(id);
+    await db.run(
+      "INSERT INTO credentials (id, vault_id, name, value_encrypted, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
+      id, vaultId, body.name, encrypted, now, now
+    );
+    const row = await db.get("SELECT * FROM credentials WHERE id = ?", id);
     return c.json(rowToCredential(row), 200);
   });
 
   app.openapi(deleteCredentialRoute, async (c) => {
     const { credentialId } = c.req.valid("param") as any;
-    const db = getDB();
-    db.prepare("DELETE FROM credentials WHERE id = ?").run(credentialId);
+    const db = await getDB();
+    await db.run("DELETE FROM credentials WHERE id = ?", credentialId);
     return c.json({ deleted: true }, 200);
   });
 }

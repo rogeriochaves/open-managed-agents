@@ -155,19 +155,20 @@ async function executeBuiltinTool(
 /**
  * Store an event in the database and return it.
  */
-function storeEvent(
+async function storeEvent(
   sessionId: string,
   type: string,
   data: Record<string, unknown>
-): SessionEventData {
-  const db = getDB();
+): Promise<SessionEventData> {
+  const db = await getDB();
   const id = newId("evt");
   const processed_at = new Date().toISOString();
   const event: SessionEventData = { id, type, ...data, processed_at };
 
-  db.prepare(
-    "INSERT INTO events (id, session_id, type, data, processed_at) VALUES (?, ?, ?, ?, ?)"
-  ).run(id, sessionId, type, JSON.stringify(data), processed_at);
+  await db.run(
+    "INSERT INTO events (id, session_id, type, data, processed_at) VALUES (?, ?, ?, ?, ?)",
+    id, sessionId, type, JSON.stringify(data), processed_at
+  );
 
   return event;
 }
@@ -175,25 +176,26 @@ function storeEvent(
 /**
  * Update session status in the database.
  */
-function updateSessionStatus(sessionId: string, status: string) {
-  const db = getDB();
-  db.prepare(
-    "UPDATE sessions SET status = ?, updated_at = datetime('now') WHERE id = ?"
-  ).run(status, sessionId);
+async function updateSessionStatus(sessionId: string, status: string) {
+  const db = await getDB();
+  await db.run(
+    "UPDATE sessions SET status = ?, updated_at = ? WHERE id = ?",
+    status, new Date().toISOString(), sessionId
+  );
 }
 
 /**
  * Update session usage stats.
  */
-function updateSessionUsage(
+async function updateSessionUsage(
   sessionId: string,
   inputTokens: number,
   outputTokens: number,
   cacheRead: number,
-  cacheWrite: number
+  _cacheWrite: number
 ) {
-  const db = getDB();
-  const session = db.prepare("SELECT usage, stats FROM sessions WHERE id = ?").get(sessionId) as any;
+  const db = await getDB();
+  const session = await db.get<any>("SELECT usage, stats FROM sessions WHERE id = ?", sessionId);
   if (!session) return;
 
   const usage = JSON.parse(session.usage || "{}");
@@ -203,21 +205,21 @@ function updateSessionUsage(
   usage.output_tokens = (usage.output_tokens ?? 0) + outputTokens;
   usage.cache_read_input_tokens = (usage.cache_read_input_tokens ?? 0) + cacheRead;
 
-  db.prepare(
-    "UPDATE sessions SET usage = ?, stats = ?, updated_at = datetime('now') WHERE id = ?"
-  ).run(JSON.stringify(usage), JSON.stringify(stats), sessionId);
+  await db.run(
+    "UPDATE sessions SET usage = ?, stats = ?, updated_at = ? WHERE id = ?",
+    JSON.stringify(usage), JSON.stringify(stats), new Date().toISOString(), sessionId
+  );
 }
 
 /**
  * Build conversation messages from stored events for a session.
  */
-function buildMessagesFromEvents(sessionId: string): ChatMessage[] {
-  const db = getDB();
-  const events = db
-    .prepare(
-      "SELECT type, data FROM events WHERE session_id = ? ORDER BY processed_at ASC"
-    )
-    .all(sessionId) as Array<{ type: string; data: string }>;
+async function buildMessagesFromEvents(sessionId: string): Promise<ChatMessage[]> {
+  const db = await getDB();
+  const events = await db.all<{ type: string; data: string }>(
+    "SELECT type, data FROM events WHERE session_id = ? ORDER BY processed_at ASC",
+    sessionId
+  );
 
   const messages: ChatMessage[] = [];
 
@@ -303,8 +305,8 @@ export async function runAgentLoop(
   let iteration = 0;
 
   // Mark session as running
-  updateSessionStatus(sessionId, "running");
-  const runningEvent = storeEvent(sessionId, "session.status_running", {});
+  await updateSessionStatus(sessionId, "running");
+  const runningEvent = await storeEvent(sessionId, "session.status_running", {});
   emitter?.emit(runningEvent);
 
   try {
@@ -312,12 +314,12 @@ export async function runAgentLoop(
       iteration++;
 
       // Build messages from stored events
-      const messages = buildMessagesFromEvents(sessionId);
+      const messages = await buildMessagesFromEvents(sessionId);
 
       if (messages.length === 0) break;
 
       // Emit model request start
-      const startEvent = storeEvent(sessionId, "span.model_request_start", {});
+      const startEvent = await storeEvent(sessionId, "span.model_request_start", {});
       emitter?.emit(startEvent);
 
       // Call the LLM
@@ -329,7 +331,7 @@ export async function runAgentLoop(
       });
 
       // Emit model request end with usage
-      const endEvent = storeEvent(sessionId, "span.model_request_end", {
+      const endEvent = await storeEvent(sessionId, "span.model_request_end", {
         model_request_start_id: startEvent.id,
         model_usage: {
           input_tokens: result.usage.input_tokens,
@@ -342,7 +344,7 @@ export async function runAgentLoop(
       emitter?.emit(endEvent);
 
       // Update session usage
-      updateSessionUsage(
+      await updateSessionUsage(
         sessionId,
         result.usage.input_tokens,
         result.usage.output_tokens,
@@ -356,7 +358,7 @@ export async function runAgentLoop(
 
       // Emit text response as agent message
       if (textParts.length > 0) {
-        const agentMsg = storeEvent(sessionId, "agent.message", {
+        const agentMsg = await storeEvent(sessionId, "agent.message", {
           content: textParts.map((p) => ({ type: "text", text: p.text })),
         });
         emitter?.emit(agentMsg);
@@ -370,7 +372,7 @@ export async function runAgentLoop(
       // Process tool calls
       for (const toolUse of toolUseParts) {
         // Emit tool use event
-        const toolUseEvent = storeEvent(sessionId, "agent.tool_use", {
+        const toolUseEvent = await storeEvent(sessionId, "agent.tool_use", {
           tool_use_id: toolUse.id,
           name: toolUse.name,
           input: toolUse.input,
@@ -385,13 +387,13 @@ export async function runAgentLoop(
 
         if (isCustom) {
           // Emit custom tool use event - user needs to provide result
-          storeEvent(sessionId, "agent.custom_tool_use", {
+          await storeEvent(sessionId, "agent.custom_tool_use", {
             name: toolUse.name,
             input: toolUse.input,
           });
           // Go idle waiting for user to provide tool result
-          updateSessionStatus(sessionId, "idle");
-          const idleEvent = storeEvent(sessionId, "session.status_idle", {
+          await updateSessionStatus(sessionId, "idle");
+          const idleEvent = await storeEvent(sessionId, "session.status_idle", {
             stop_reason: {
               type: "requires_action",
               event_ids: [toolUseEvent.id],
@@ -408,7 +410,7 @@ export async function runAgentLoop(
         );
 
         // Store tool result
-        const toolResultEvent = storeEvent(sessionId, "agent.tool_result", {
+        const toolResultEvent = await storeEvent(sessionId, "agent.tool_result", {
           tool_use_id: toolUse.id,
           content: [{ type: "text", text: toolResult.content }],
           is_error: toolResult.is_error,
@@ -420,15 +422,15 @@ export async function runAgentLoop(
     }
 
     // Mark session as idle
-    updateSessionStatus(sessionId, "idle");
-    const idleEvent = storeEvent(sessionId, "session.status_idle", {
+    await updateSessionStatus(sessionId, "idle");
+    const idleEvent = await storeEvent(sessionId, "session.status_idle", {
       stop_reason: { type: "end_turn" },
     });
     emitter?.emit(idleEvent);
   } catch (err: any) {
     console.error(`Agent loop error for session ${sessionId}:`, err);
 
-    const errorEvent = storeEvent(sessionId, "session.error", {
+    const errorEvent = await storeEvent(sessionId, "session.error", {
       error: {
         type: "unknown_error",
         message: err.message ?? "Unknown error",
@@ -437,8 +439,8 @@ export async function runAgentLoop(
     });
     emitter?.emit(errorEvent);
 
-    updateSessionStatus(sessionId, "idle");
-    const idleEvent = storeEvent(sessionId, "session.status_idle", {
+    await updateSessionStatus(sessionId, "idle");
+    const idleEvent = await storeEvent(sessionId, "session.status_idle", {
       stop_reason: { type: "end_turn" },
     });
     emitter?.emit(idleEvent);

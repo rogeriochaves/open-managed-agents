@@ -74,30 +74,29 @@ function rowToEnvironment(row: any): any {
 export function registerEnvironmentRoutes(app: OpenAPIHono) {
   app.openapi(createEnvironmentRoute, async (c) => {
     const body = c.req.valid("json") as any;
-    const db = getDB();
+    const db = await getDB();
     const id = newId("env");
     const now = new Date().toISOString();
 
     const networking = body.config?.networking ?? { type: "unrestricted" };
     const packages = body.config?.packages ?? {};
 
-    db.prepare(`
-      INSERT INTO environments (id, name, description, networking, packages, metadata, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(
+    await db.run(
+      `INSERT INTO environments (id, name, description, networking, packages, metadata, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
       id, body.name, body.description ?? "",
       JSON.stringify(networking), JSON.stringify(packages),
       JSON.stringify(body.metadata ?? {}), now, now
     );
 
-    const row = db.prepare("SELECT * FROM environments WHERE id = ?").get(id);
+    const row = await db.get("SELECT * FROM environments WHERE id = ?", id);
     return c.json(rowToEnvironment(row), 200);
   });
 
   app.openapi(retrieveEnvironmentRoute, async (c) => {
     const { environmentId } = c.req.valid("param");
-    const db = getDB();
-    const row = db.prepare("SELECT * FROM environments WHERE id = ?").get(environmentId);
+    const db = await getDB();
+    const row = await db.get("SELECT * FROM environments WHERE id = ?", environmentId);
     if (!row) throw Object.assign(new Error(`Environment ${environmentId} not found`), { status: 404, type: "not_found" });
     return c.json(rowToEnvironment(row), 200);
   });
@@ -105,7 +104,7 @@ export function registerEnvironmentRoutes(app: OpenAPIHono) {
   app.openapi(updateEnvironmentRoute, async (c) => {
     const { environmentId } = c.req.valid("param");
     const body = c.req.valid("json") as any;
-    const db = getDB();
+    const db = await getDB();
     const updates: string[] = [];
     const values: any[] = [];
 
@@ -115,24 +114,25 @@ export function registerEnvironmentRoutes(app: OpenAPIHono) {
     if (body.config?.packages !== undefined) { updates.push("packages = ?"); values.push(JSON.stringify(body.config.packages)); }
 
     if (updates.length > 0) {
-      updates.push("updated_at = datetime('now')");
+      updates.push("updated_at = ?");
+      values.push(new Date().toISOString());
       values.push(environmentId);
-      db.prepare(`UPDATE environments SET ${updates.join(", ")} WHERE id = ?`).run(...values);
+      await db.run(`UPDATE environments SET ${updates.join(", ")} WHERE id = ?`, ...values);
     }
 
-    const row = db.prepare("SELECT * FROM environments WHERE id = ?").get(environmentId);
+    const row = await db.get("SELECT * FROM environments WHERE id = ?", environmentId);
     if (!row) throw Object.assign(new Error(`Environment ${environmentId} not found`), { status: 404, type: "not_found" });
     return c.json(rowToEnvironment(row), 200);
   });
 
   app.openapi(listEnvironmentsRoute, async (c) => {
     const query = c.req.valid("query") as any;
-    const db = getDB();
+    const db = await getDB();
     const conditions: string[] = [];
     if (!query.include_archived) conditions.push("archived_at IS NULL");
     const where = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
     const limit = Math.min(query.limit ?? 20, 100);
-    const rows = db.prepare(`SELECT * FROM environments ${where} ORDER BY created_at DESC LIMIT ?`).all(limit + 1) as any[];
+    const rows = await db.all<any>(`SELECT * FROM environments ${where} ORDER BY created_at DESC LIMIT ?`, limit + 1);
     const hasMore = rows.length > limit;
     const data = rows.slice(0, limit).map(rowToEnvironment);
     return c.json({ data, has_more: hasMore, first_id: data[0]?.id ?? null, last_id: data[data.length - 1]?.id ?? null }, 200);
@@ -140,16 +140,17 @@ export function registerEnvironmentRoutes(app: OpenAPIHono) {
 
   app.openapi(deleteEnvironmentRoute, async (c) => {
     const { environmentId } = c.req.valid("param");
-    const db = getDB();
-    db.prepare("DELETE FROM environments WHERE id = ?").run(environmentId);
+    const db = await getDB();
+    await db.run("DELETE FROM environments WHERE id = ?", environmentId);
     return c.json({ id: environmentId, type: "environment_deleted" }, 200);
   });
 
   app.openapi(archiveEnvironmentRoute, async (c) => {
     const { environmentId } = c.req.valid("param");
-    const db = getDB();
-    db.prepare("UPDATE environments SET archived_at = datetime('now'), updated_at = datetime('now') WHERE id = ?").run(environmentId);
-    const row = db.prepare("SELECT * FROM environments WHERE id = ?").get(environmentId);
+    const db = await getDB();
+    const now = new Date().toISOString();
+    await db.run("UPDATE environments SET archived_at = ?, updated_at = ? WHERE id = ?", now, now, environmentId);
+    const row = await db.get("SELECT * FROM environments WHERE id = ?", environmentId);
     if (!row) throw Object.assign(new Error(`Environment ${environmentId} not found`), { status: 404, type: "not_found" });
     return c.json(rowToEnvironment(row), 200);
   });

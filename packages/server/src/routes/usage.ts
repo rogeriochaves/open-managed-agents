@@ -55,20 +55,28 @@ const COST_PER_1M: Record<string, { input: number; output: number }> = {
 };
 
 export function registerUsageRoutes(app: OpenAPIHono) {
-  app.openapi(usageSummaryRoute, (c) => {
+  app.openapi(usageSummaryRoute, async (c) => {
     const { days } = c.req.valid("query") as any;
-    const db = getDB();
+    const db = await getDB();
 
-    const dateFilter = days
-      ? `AND s.created_at >= datetime('now', '-${Math.min(days, 365)} days')`
-      : "";
-
-    // Get sessions with usage
-    const sessions = db.prepare(`
-      SELECT s.id, s.agent_id, s.usage, s.agent_snapshot
-      FROM sessions s
-      WHERE s.archived_at IS NULL ${dateFilter}
-    `).all() as any[];
+    // Compute cutoff as ISO string — works in both SQLite and Postgres since
+    // we store timestamps as ISO TEXT everywhere.
+    let sessions: any[];
+    if (days) {
+      const cutoff = new Date(Date.now() - Math.min(days, 365) * 24 * 60 * 60 * 1000).toISOString();
+      sessions = await db.all<any>(
+        `SELECT s.id, s.agent_id, s.usage, s.agent_snapshot
+         FROM sessions s
+         WHERE s.archived_at IS NULL AND s.created_at >= ?`,
+        cutoff
+      );
+    } else {
+      sessions = await db.all<any>(
+        `SELECT s.id, s.agent_id, s.usage, s.agent_snapshot
+         FROM sessions s
+         WHERE s.archived_at IS NULL`
+      );
+    }
 
     // Aggregate by agent
     const byAgent = new Map<string, {
@@ -105,7 +113,7 @@ export function registerUsageRoutes(app: OpenAPIHono) {
       if (!byAgent.has(agentId)) {
         const providerId = snapshot.model_provider_id;
         const providerRow = providerId
-          ? db.prepare("SELECT type FROM llm_providers WHERE id = ?").get(providerId) as any
+          ? await db.get<any>("SELECT type FROM llm_providers WHERE id = ?", providerId)
           : null;
         byAgent.set(agentId, {
           agent_name: agentName,
@@ -123,7 +131,7 @@ export function registerUsageRoutes(app: OpenAPIHono) {
       // By provider
       const providerId = snapshot.model_provider_id ?? "provider_default";
       if (!byProvider.has(providerId)) {
-        const providerRow = db.prepare("SELECT name, type FROM llm_providers WHERE id = ?").get(providerId) as any;
+        const providerRow = await db.get<any>("SELECT name, type FROM llm_providers WHERE id = ?", providerId);
         byProvider.set(providerId, {
           provider_name: providerRow?.name ?? "Default",
           provider_type: providerRow?.type ?? "anthropic",
@@ -138,7 +146,8 @@ export function registerUsageRoutes(app: OpenAPIHono) {
       p.output_tokens += outputTokens;
     }
 
-    const totalEvents = (db.prepare("SELECT COUNT(*) as c FROM events").get() as any).c;
+    const totalEventsRow = await db.get<{ c: number }>("SELECT COUNT(*) as c FROM events");
+    const totalEvents = totalEventsRow?.c ?? 0;
 
     function estimateCost(inputTokens: number, outputTokens: number, providerType: string) {
       const rates = COST_PER_1M[providerType] ?? COST_PER_1M.anthropic;

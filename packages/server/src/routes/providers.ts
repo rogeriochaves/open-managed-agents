@@ -120,37 +120,39 @@ function rowToProvider(row: any) {
 /**
  * Seed default providers from environment variables if none exist.
  */
-export function seedDefaultProviders() {
-  const db = getDB();
-  const count = (db.prepare("SELECT COUNT(*) as c FROM llm_providers").get() as any).c;
-  if (count > 0) return;
+export async function seedDefaultProviders() {
+  const db = await getDB();
+  const countRow = await db.get<{ c: number }>("SELECT COUNT(*) as c FROM llm_providers");
+  if ((countRow?.c ?? 0) > 0) return;
 
   if (process.env.ANTHROPIC_API_KEY) {
-    db.prepare(
-      "INSERT INTO llm_providers (id, name, type, api_key_encrypted, default_model, is_default) VALUES (?, ?, ?, ?, ?, ?)"
-    ).run("provider_anthropic", "Anthropic", "anthropic", process.env.ANTHROPIC_API_KEY, "claude-sonnet-4-6", 1);
+    await db.run(
+      "INSERT INTO llm_providers (id, name, type, api_key_encrypted, default_model, is_default) VALUES (?, ?, ?, ?, ?, ?)",
+      "provider_anthropic", "Anthropic", "anthropic", process.env.ANTHROPIC_API_KEY, "claude-sonnet-4-6", 1
+    );
   }
 
   if (process.env.OPENAI_API_KEY) {
-    db.prepare(
-      "INSERT INTO llm_providers (id, name, type, api_key_encrypted, default_model, is_default) VALUES (?, ?, ?, ?, ?, ?)"
-    ).run("provider_openai", "OpenAI", "openai", process.env.OPENAI_API_KEY, "gpt-4o", process.env.ANTHROPIC_API_KEY ? 0 : 1);
+    await db.run(
+      "INSERT INTO llm_providers (id, name, type, api_key_encrypted, default_model, is_default) VALUES (?, ?, ?, ?, ?, ?)",
+      "provider_openai", "OpenAI", "openai", process.env.OPENAI_API_KEY, "gpt-4o", process.env.ANTHROPIC_API_KEY ? 0 : 1
+    );
   }
 }
 
 /**
  * Get the provider config for a given provider ID, or the default provider.
  */
-export function getProviderConfig(providerId?: string | null): ProviderConfig | null {
-  const db = getDB();
+export async function getProviderConfig(providerId?: string | null): Promise<ProviderConfig | null> {
+  const db = await getDB();
   let row: any;
 
   if (providerId) {
-    row = db.prepare("SELECT * FROM llm_providers WHERE id = ?").get(providerId);
+    row = await db.get("SELECT * FROM llm_providers WHERE id = ?", providerId);
   } else {
-    row = db.prepare("SELECT * FROM llm_providers WHERE is_default = 1").get();
+    row = await db.get("SELECT * FROM llm_providers WHERE is_default = 1");
     if (!row) {
-      row = db.prepare("SELECT * FROM llm_providers LIMIT 1").get();
+      row = await db.get("SELECT * FROM llm_providers LIMIT 1");
     }
   }
 
@@ -170,43 +172,44 @@ export function getProviderConfig(providerId?: string | null): ProviderConfig | 
 // ── Register ───────────────────────────────────────────────────────────────
 
 export function registerProviderRoutes(app: OpenAPIHono) {
-  app.openapi(listProvidersRoute, (c) => {
-    const db = getDB();
-    const rows = db.prepare("SELECT * FROM llm_providers ORDER BY is_default DESC, name").all();
+  app.openapi(listProvidersRoute, async (c) => {
+    const db = await getDB();
+    const rows = await db.all<any>("SELECT * FROM llm_providers ORDER BY is_default DESC, name");
     return c.json({ data: rows.map(rowToProvider) }, 200);
   });
 
-  app.openapi(createProviderRoute, (c) => {
+  app.openapi(createProviderRoute, async (c) => {
     const body = c.req.valid("json");
-    const db = getDB();
+    const db = await getDB();
     const id = newId("provider");
 
     // If setting as default, unset others
     if (body.is_default) {
-      db.prepare("UPDATE llm_providers SET is_default = 0").run();
+      await db.run("UPDATE llm_providers SET is_default = 0");
     }
 
-    db.prepare(
-      "INSERT INTO llm_providers (id, name, type, api_key_encrypted, base_url, default_model, is_default) VALUES (?, ?, ?, ?, ?, ?, ?)"
-    ).run(id, body.name, body.type, body.api_key ?? null, body.base_url ?? null, body.default_model ?? null, body.is_default ? 1 : 0);
+    await db.run(
+      "INSERT INTO llm_providers (id, name, type, api_key_encrypted, base_url, default_model, is_default) VALUES (?, ?, ?, ?, ?, ?, ?)",
+      id, body.name, body.type, body.api_key ?? null, body.base_url ?? null, body.default_model ?? null, body.is_default ? 1 : 0
+    );
 
     clearProviderCache();
 
-    const row = db.prepare("SELECT * FROM llm_providers WHERE id = ?").get(id);
+    const row = await db.get("SELECT * FROM llm_providers WHERE id = ?", id);
     return c.json(rowToProvider(row), 200);
   });
 
-  app.openapi(deleteProviderRoute, (c) => {
+  app.openapi(deleteProviderRoute, async (c) => {
     const { providerId } = c.req.valid("param");
-    const db = getDB();
-    db.prepare("DELETE FROM llm_providers WHERE id = ?").run(providerId);
+    const db = await getDB();
+    await db.run("DELETE FROM llm_providers WHERE id = ?", providerId);
     clearProviderCache();
     return c.json({ deleted: true }, 200);
   });
 
   app.openapi(listModelsRoute, async (c) => {
     const { providerId } = c.req.valid("param");
-    const config = getProviderConfig(providerId);
+    const config = await getProviderConfig(providerId);
     if (!config) {
       return c.json({ models: [] }, 200);
     }

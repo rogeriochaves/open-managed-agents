@@ -36,14 +36,14 @@ const app = new OpenAPIHono();
 
 // ── Initialize database and seed providers ─────────────────────────────────
 
-getDB(); // Ensure schema is created
-seedDefaultProviders(); // Seed from env vars on first run
-initAuth(); // Initialize default admin user password
+await getDB(); // Ensure schema is created
+await seedDefaultProviders(); // Seed from env vars on first run
+await initAuth(); // Initialize default admin user password
 
 // Load governance config if specified
 const governanceConfigPath = process.env.GOVERNANCE_CONFIG;
 if (governanceConfigPath) {
-  loadGovernanceConfig(resolve(process.cwd(), governanceConfigPath));
+  await loadGovernanceConfig(resolve(process.cwd(), governanceConfigPath));
 }
 
 // ── Middleware ───────────────────────────────────────────────────────────────

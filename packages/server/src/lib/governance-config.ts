@@ -115,9 +115,9 @@ interface ProviderConfig {
 
 /**
  * Load and apply governance config from a file.
- * Supports JSON and YAML (simple parser for YAML).
+ * Supports JSON (YAML support can be added later).
  */
-export function loadGovernanceConfig(configPath: string) {
+export async function loadGovernanceConfig(configPath: string) {
   if (!existsSync(configPath)) {
     console.log(`Governance config not found at ${configPath}, skipping.`);
     return;
@@ -126,25 +126,20 @@ export function loadGovernanceConfig(configPath: string) {
   const raw = readFileSync(configPath, "utf-8");
   let config: GovernanceConfig;
 
-  if (configPath.endsWith(".json")) {
+  try {
     config = JSON.parse(raw);
-  } else {
-    // Simple YAML parsing - for complex configs, users should use JSON
-    // or we can add a yaml dependency later
-    try {
-      config = JSON.parse(raw);
-    } catch {
-      console.error("Governance config must be JSON format. YAML support coming soon.");
-      return;
-    }
+  } catch {
+    console.error("Governance config must be JSON format.");
+    return;
   }
 
-  applyConfig(config);
+  await applyConfig(config);
   console.log(`Governance config loaded from ${configPath}`);
 }
 
-function applyConfig(config: GovernanceConfig) {
-  const db = getDB();
+async function applyConfig(config: GovernanceConfig) {
+  const db = await getDB();
+  const now = new Date().toISOString();
 
   // Apply providers
   if (config.providers) {
@@ -152,13 +147,15 @@ function applyConfig(config: GovernanceConfig) {
       const apiKey = p.api_key_env ? process.env[p.api_key_env] : p.api_key;
       const id = `provider_${p.type}`;
 
-      const existing = db.prepare("SELECT id FROM llm_providers WHERE id = ?").get(id);
+      const existing = await db.get<any>("SELECT id FROM llm_providers WHERE id = ?", id);
       if (existing) {
-        db.prepare("UPDATE llm_providers SET name = ?, api_key_encrypted = ?, base_url = ?, default_model = ?, is_default = ?, updated_at = datetime('now') WHERE id = ?").run(
-          p.name, apiKey ?? null, p.base_url ?? null, p.default_model ?? null, p.is_default ? 1 : 0, id
+        await db.run(
+          "UPDATE llm_providers SET name = ?, api_key_encrypted = ?, base_url = ?, default_model = ?, is_default = ?, updated_at = ? WHERE id = ?",
+          p.name, apiKey ?? null, p.base_url ?? null, p.default_model ?? null, p.is_default ? 1 : 0, now, id
         );
       } else {
-        db.prepare("INSERT INTO llm_providers (id, name, type, api_key_encrypted, base_url, default_model, is_default) VALUES (?,?,?,?,?,?,?)").run(
+        await db.run(
+          "INSERT INTO llm_providers (id, name, type, api_key_encrypted, base_url, default_model, is_default) VALUES (?,?,?,?,?,?,?)",
           id, p.name, p.type, apiKey ?? null, p.base_url ?? null, p.default_model ?? null, p.is_default ? 1 : 0
         );
       }
@@ -170,14 +167,16 @@ function applyConfig(config: GovernanceConfig) {
     for (const org of config.organizations) {
       const orgId = `org_${org.slug}`;
 
-      const existing = db.prepare("SELECT id FROM organizations WHERE id = ?").get(orgId);
+      const existing = await db.get<any>("SELECT id FROM organizations WHERE id = ?", orgId);
       if (!existing) {
-        db.prepare("INSERT INTO organizations (id, name, slug, logo_url, sso_provider, sso_config) VALUES (?,?,?,?,?,?)").run(
+        await db.run(
+          "INSERT INTO organizations (id, name, slug, logo_url, sso_provider, sso_config) VALUES (?,?,?,?,?,?)",
           orgId, org.name, org.slug, org.logo_url ?? null, org.sso_provider ?? null, org.sso_config ? JSON.stringify(org.sso_config) : null
         );
       } else {
-        db.prepare("UPDATE organizations SET name = ?, logo_url = ?, sso_provider = ?, sso_config = ?, updated_at = datetime('now') WHERE id = ?").run(
-          org.name, org.logo_url ?? null, org.sso_provider ?? null, org.sso_config ? JSON.stringify(org.sso_config) : null, orgId
+        await db.run(
+          "UPDATE organizations SET name = ?, logo_url = ?, sso_provider = ?, sso_config = ?, updated_at = ? WHERE id = ?",
+          org.name, org.logo_url ?? null, org.sso_provider ?? null, org.sso_config ? JSON.stringify(org.sso_config) : null, now, orgId
         );
       }
 
@@ -186,27 +185,34 @@ function applyConfig(config: GovernanceConfig) {
         for (const team of org.teams) {
           const teamId = `team_${org.slug}_${team.slug}`;
 
-          const existingTeam = db.prepare("SELECT id FROM teams WHERE id = ?").get(teamId);
+          const existingTeam = await db.get<any>("SELECT id FROM teams WHERE id = ?", teamId);
           if (!existingTeam) {
-            db.prepare("INSERT INTO teams (id, organization_id, name, slug, description) VALUES (?,?,?,?,?)").run(
+            await db.run(
+              "INSERT INTO teams (id, organization_id, name, slug, description) VALUES (?,?,?,?,?)",
               teamId, orgId, team.name, team.slug, team.description ?? null
             );
           } else {
-            db.prepare("UPDATE teams SET name = ?, description = ?, updated_at = datetime('now') WHERE id = ?").run(
-              team.name, team.description ?? null, teamId
+            await db.run(
+              "UPDATE teams SET name = ?, description = ?, updated_at = ? WHERE id = ?",
+              team.name, team.description ?? null, now, teamId
             );
           }
 
           // Provider access
           if (team.providers) {
             for (const pa of team.providers) {
-              const existing = db.prepare("SELECT id FROM team_provider_access WHERE team_id = ? AND provider_id = ?").get(teamId, pa.id);
-              if (existing) {
-                db.prepare("UPDATE team_provider_access SET enabled = ?, rate_limit_rpm = ?, monthly_budget_usd = ? WHERE team_id = ? AND provider_id = ?").run(
+              const existingAccess = await db.get<any>(
+                "SELECT id FROM team_provider_access WHERE team_id = ? AND provider_id = ?",
+                teamId, pa.id
+              );
+              if (existingAccess) {
+                await db.run(
+                  "UPDATE team_provider_access SET enabled = ?, rate_limit_rpm = ?, monthly_budget_usd = ? WHERE team_id = ? AND provider_id = ?",
                   pa.enabled !== false ? 1 : 0, pa.rate_limit_rpm ?? null, pa.monthly_budget_usd ?? null, teamId, pa.id
                 );
               } else {
-                db.prepare("INSERT INTO team_provider_access (id, team_id, provider_id, enabled, rate_limit_rpm, monthly_budget_usd) VALUES (?,?,?,?,?,?)").run(
+                await db.run(
+                  "INSERT INTO team_provider_access (id, team_id, provider_id, enabled, rate_limit_rpm, monthly_budget_usd) VALUES (?,?,?,?,?,?)",
                   newId("tpa"), teamId, pa.id, pa.enabled !== false ? 1 : 0, pa.rate_limit_rpm ?? null, pa.monthly_budget_usd ?? null
                 );
               }
@@ -216,11 +222,20 @@ function applyConfig(config: GovernanceConfig) {
           // MCP policies
           if (team.mcp_policies) {
             for (const mp of team.mcp_policies) {
-              const existing = db.prepare("SELECT id FROM team_mcp_policies WHERE team_id = ? AND connector_id = ?").get(teamId, mp.connector_id);
-              if (existing) {
-                db.prepare("UPDATE team_mcp_policies SET policy = ? WHERE team_id = ? AND connector_id = ?").run(mp.policy, teamId, mp.connector_id);
+              const existingPolicy = await db.get<any>(
+                "SELECT id FROM team_mcp_policies WHERE team_id = ? AND connector_id = ?",
+                teamId, mp.connector_id
+              );
+              if (existingPolicy) {
+                await db.run(
+                  "UPDATE team_mcp_policies SET policy = ? WHERE team_id = ? AND connector_id = ?",
+                  mp.policy, teamId, mp.connector_id
+                );
               } else {
-                db.prepare("INSERT INTO team_mcp_policies (id, team_id, connector_id, policy) VALUES (?,?,?,?)").run(newId("mcp_pol"), teamId, mp.connector_id, mp.policy);
+                await db.run(
+                  "INSERT INTO team_mcp_policies (id, team_id, connector_id, policy) VALUES (?,?,?,?)",
+                  newId("mcp_pol"), teamId, mp.connector_id, mp.policy
+                );
               }
             }
           }
@@ -229,9 +244,10 @@ function applyConfig(config: GovernanceConfig) {
           if (team.projects) {
             for (const proj of team.projects) {
               const projId = `proj_${org.slug}_${team.slug}_${proj.slug}`;
-              const existingProj = db.prepare("SELECT id FROM projects WHERE id = ?").get(projId);
+              const existingProj = await db.get<any>("SELECT id FROM projects WHERE id = ?", projId);
               if (!existingProj) {
-                db.prepare("INSERT INTO projects (id, team_id, name, slug, description) VALUES (?,?,?,?,?)").run(
+                await db.run(
+                  "INSERT INTO projects (id, team_id, name, slug, description) VALUES (?,?,?,?,?)",
                   projId, teamId, proj.name, proj.slug, proj.description ?? null
                 );
               }

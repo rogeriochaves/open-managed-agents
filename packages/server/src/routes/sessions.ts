@@ -145,13 +145,13 @@ function rowToSession(row: any): any {
 export function registerSessionRoutes(app: OpenAPIHono) {
   app.openapi(createSessionRoute, async (c) => {
     const body = c.req.valid("json") as any;
-    const db = getDB();
+    const db = await getDB();
     const id = newId("session");
     const now = new Date().toISOString();
 
     // Resolve agent
     const agentId = typeof body.agent === "string" ? body.agent : body.agent?.id;
-    const agent = db.prepare("SELECT * FROM agents WHERE id = ?").get(agentId) as any;
+    const agent = await db.get<any>("SELECT * FROM agents WHERE id = ?", agentId);
 
     if (!agent) {
       throw Object.assign(new Error(`Agent ${agentId} not found`), { status: 404, type: "not_found" });
@@ -174,10 +174,9 @@ export function registerSessionRoutes(app: OpenAPIHono) {
 
     const environmentId = body.environment_id ?? "env_default";
 
-    db.prepare(`
-      INSERT INTO sessions (id, title, agent_id, agent_snapshot, environment_id, status, resources, metadata, vault_ids, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, 'idle', ?, ?, ?, ?, ?)
-    `).run(
+    await db.run(
+      `INSERT INTO sessions (id, title, agent_id, agent_snapshot, environment_id, status, resources, metadata, vault_ids, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, 'idle', ?, ?, ?, ?, ?)`,
       id,
       body.title ?? null,
       agentId,
@@ -190,14 +189,14 @@ export function registerSessionRoutes(app: OpenAPIHono) {
       now
     );
 
-    const row = db.prepare("SELECT * FROM sessions WHERE id = ?").get(id);
+    const row = await db.get("SELECT * FROM sessions WHERE id = ?", id);
     return c.json(rowToSession(row), 200);
   });
 
   app.openapi(retrieveSessionRoute, async (c) => {
     const { sessionId } = c.req.valid("param");
-    const db = getDB();
-    const row = db.prepare("SELECT * FROM sessions WHERE id = ?").get(sessionId);
+    const db = await getDB();
+    const row = await db.get("SELECT * FROM sessions WHERE id = ?", sessionId);
 
     if (!row) {
       throw Object.assign(new Error(`Session ${sessionId} not found`), { status: 404, type: "not_found" });
@@ -209,7 +208,7 @@ export function registerSessionRoutes(app: OpenAPIHono) {
   app.openapi(updateSessionRoute, async (c) => {
     const { sessionId } = c.req.valid("param");
     const body = c.req.valid("json") as any;
-    const db = getDB();
+    const db = await getDB();
 
     const updates: string[] = [];
     const values: any[] = [];
@@ -228,12 +227,13 @@ export function registerSessionRoutes(app: OpenAPIHono) {
     }
 
     if (updates.length > 0) {
-      updates.push("updated_at = datetime('now')");
+      updates.push("updated_at = ?");
+      values.push(new Date().toISOString());
       values.push(sessionId);
-      db.prepare(`UPDATE sessions SET ${updates.join(", ")} WHERE id = ?`).run(...values);
+      await db.run(`UPDATE sessions SET ${updates.join(", ")} WHERE id = ?`, ...values);
     }
 
-    const row = db.prepare("SELECT * FROM sessions WHERE id = ?").get(sessionId);
+    const row = await db.get("SELECT * FROM sessions WHERE id = ?", sessionId);
     if (!row) {
       throw Object.assign(new Error(`Session ${sessionId} not found`), { status: 404, type: "not_found" });
     }
@@ -243,7 +243,7 @@ export function registerSessionRoutes(app: OpenAPIHono) {
 
   app.openapi(listSessionsRoute, async (c) => {
     const query = c.req.valid("query") as any;
-    const db = getDB();
+    const db = await getDB();
 
     const conditions: string[] = [];
     const values: any[] = [];
@@ -260,9 +260,11 @@ export function registerSessionRoutes(app: OpenAPIHono) {
     const order = query.order === "asc" ? "ASC" : "DESC";
     const limit = Math.min(query.limit ?? 20, 100);
 
-    const rows = db
-      .prepare(`SELECT * FROM sessions ${where} ORDER BY created_at ${order} LIMIT ?`)
-      .all(...values, limit + 1) as any[];
+    const rows = await db.all<any>(
+      `SELECT * FROM sessions ${where} ORDER BY created_at ${order} LIMIT ?`,
+      ...values,
+      limit + 1
+    );
 
     const hasMore = rows.length > limit;
     const data = rows.slice(0, limit).map(rowToSession);
@@ -280,24 +282,28 @@ export function registerSessionRoutes(app: OpenAPIHono) {
 
   app.openapi(deleteSessionRoute, async (c) => {
     const { sessionId } = c.req.valid("param");
-    const db = getDB();
+    const db = await getDB();
 
     // Delete events first
-    db.prepare("DELETE FROM events WHERE session_id = ?").run(sessionId);
-    db.prepare("DELETE FROM sessions WHERE id = ?").run(sessionId);
+    await db.run("DELETE FROM events WHERE session_id = ?", sessionId);
+    await db.run("DELETE FROM sessions WHERE id = ?", sessionId);
 
     return c.json({ id: sessionId, type: "session_deleted" }, 200);
   });
 
   app.openapi(archiveSessionRoute, async (c) => {
     const { sessionId } = c.req.valid("param");
-    const db = getDB();
+    const db = await getDB();
+    const now = new Date().toISOString();
 
-    db.prepare(
-      "UPDATE sessions SET archived_at = datetime('now'), updated_at = datetime('now') WHERE id = ?"
-    ).run(sessionId);
+    await db.run(
+      "UPDATE sessions SET archived_at = ?, updated_at = ? WHERE id = ?",
+      now,
+      now,
+      sessionId
+    );
 
-    const row = db.prepare("SELECT * FROM sessions WHERE id = ?").get(sessionId);
+    const row = await db.get("SELECT * FROM sessions WHERE id = ?", sessionId);
     if (!row) {
       throw Object.assign(new Error(`Session ${sessionId} not found`), { status: 404, type: "not_found" });
     }
