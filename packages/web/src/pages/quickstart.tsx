@@ -470,11 +470,21 @@ export function QuickstartPage() {
     if (!selectedTemplate) return;
     setIsCreating(true);
     try {
+      // NB: the template config carries mcp_servers, tools and skills
+      // too — they MUST be forwarded to the server on create so the
+      // resulting agent matches what the template preview promised.
+      // Previously only {name, description, model, system} made it
+      // through, so a "Support agent" with Slack + Notion ended up
+      // as a bare agent with no connectors.
+      const tpl = selectedTemplate.config;
       const agent = await api.createAgent({
-        name: selectedTemplate.config.name as string,
-        description: selectedTemplate.config.description as string,
-        model: selectedModel || selectedTemplate.config.model as string,
-        system: selectedTemplate.config.system as string,
+        name: tpl.name as string,
+        description: tpl.description as string,
+        model: selectedModel || (tpl.model as string),
+        system: tpl.system as string,
+        mcp_servers: (tpl.mcp_servers as any) ?? [],
+        tools: (tpl.tools as any) ?? [],
+        skills: (tpl.skills as any) ?? [],
         ...(selectedProvider?.id ? { model_provider_id: selectedProvider.id } : {}),
       } as any);
       setCreatedAgent(agent);
@@ -482,16 +492,17 @@ export function QuickstartPage() {
       // Stay at step 0 to show "Agent created" confirmation
     } catch {
       // On API failure, still advance UI for demo purposes
+      const tpl = selectedTemplate.config;
       setCreatedAgent({
         id: "agent_demo_" + Date.now(),
         type: "agent",
-        name: selectedTemplate.config.name as string,
-        description: selectedTemplate.config.description as string | null,
-        system: selectedTemplate.config.system as string | null,
-        model: { id: selectedTemplate.config.model as string },
-        tools: [],
-        mcp_servers: [],
-        skills: [],
+        name: tpl.name as string,
+        description: tpl.description as string | null,
+        system: tpl.system as string | null,
+        model: { id: tpl.model as string },
+        tools: (tpl.tools as any) ?? [],
+        mcp_servers: (tpl.mcp_servers as any) ?? [],
+        skills: (tpl.skills as any) ?? [],
         metadata: {},
         version: 1,
         created_at: new Date().toISOString(),
@@ -554,6 +565,7 @@ export function QuickstartPage() {
         model: selectedModel || "claude-sonnet-4-6",
         system: builderDraft.system ?? "You are a helpful assistant.",
         mcp_servers: builderDraft.mcp_servers ?? [],
+        skills: builderDraft.skills ?? [],
         ...(selectedProvider?.id ? { model_provider_id: selectedProvider.id } : {}),
       } as any);
       setCreatedAgent(agent);

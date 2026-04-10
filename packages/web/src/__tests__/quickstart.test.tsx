@@ -124,6 +124,56 @@ describe("QuickstartPage", () => {
     expect(screen.getByText("Browse templates")).toBeInTheDocument();
   });
 
+  it("forwards mcp_servers + tools + skills to createAgent when using a template", async () => {
+    (api.createAgent as any).mockResolvedValueOnce({
+      id: "agent_support_test",
+      type: "agent",
+      name: "support-agent",
+      description: "desc",
+      system: "sys",
+      model: { id: "claude-sonnet-4-6" },
+      tools: [],
+      mcp_servers: [],
+      skills: [],
+      metadata: {},
+      version: 1,
+      created_at: "2026-04-10T00:00:00Z",
+      updated_at: "2026-04-10T00:00:00Z",
+      archived_at: null,
+    });
+
+    const user = userEvent.setup();
+    renderPage();
+
+    // Click the Support agent template (promises Slack + Notion)
+    await user.click(screen.getByText("Support agent"));
+    expect(screen.getByText("Use this template")).toBeInTheDocument();
+
+    // Click "Use this template"
+    await user.click(screen.getByText("Use this template"));
+
+    await waitFor(() => {
+      expect(api.createAgent).toHaveBeenCalled();
+    });
+
+    // The payload MUST include the template's mcp_servers — previously
+    // the handler only sent {name, description, model, system} and
+    // dropped the connectors entirely, so a "Support agent" with
+    // Slack + Notion in the preview ended up as a bare agent after
+    // the click. This is a regression guard against that bug.
+    const callArgs = (api.createAgent as any).mock.calls[0]![0];
+    expect(callArgs.name).toBe("support-agent");
+    expect(Array.isArray(callArgs.mcp_servers)).toBe(true);
+    const serverNames = callArgs.mcp_servers.map((s: any) => s.name);
+    expect(serverNames).toContain("notion");
+    expect(serverNames).toContain("slack");
+    // Tools and skills are also forwarded (may be empty, but the
+    // field must be present so the backend doesn't default something
+    // unexpected).
+    expect(callArgs).toHaveProperty("tools");
+    expect(callArgs).toHaveProperty("skills");
+  });
+
   it("renders stepper with all 4 steps", () => {
     renderPage();
     expect(screen.getByText("Create agent")).toBeInTheDocument();
