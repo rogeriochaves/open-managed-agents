@@ -143,7 +143,15 @@ export function streamSessionEvents(
   onEvent: (event: SessionEvent) => void,
   onError?: (error: Event) => void,
 ): { close: () => void } {
-  const evtSource = new EventSource(`${BASE}/sessions/${sessionId}/events/stream`);
+  // withCredentials ensures the oma_session cookie flows on cross-
+  // origin deployments (same-origin already works by default). The
+  // server's SSE endpoint is auth-gated, so without this the stream
+  // 401s whenever the web app is hosted on a different origin than
+  // the API.
+  const evtSource = new EventSource(
+    `${BASE}/sessions/${sessionId}/events/stream`,
+    { withCredentials: true },
+  );
 
   evtSource.onmessage = (msg) => {
     try {
