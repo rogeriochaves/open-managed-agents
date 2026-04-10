@@ -24,6 +24,7 @@
 
 <p align="center">
   <a href="https://github.com/rogeriochaves/open-managed-agents/actions/workflows/ci.yml"><img src="https://github.com/rogeriochaves/open-managed-agents/actions/workflows/ci.yml/badge.svg" alt="CI" /></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache%202.0-blue.svg" alt="License: Apache 2.0" /></a>
 </p>
 
 <p align="center">
