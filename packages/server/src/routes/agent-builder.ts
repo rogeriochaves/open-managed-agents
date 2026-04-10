@@ -45,6 +45,14 @@ const BuilderDraftSchema = z.object({
     )
     .optional(),
   tools: z.array(z.record(z.unknown())).optional(),
+  // Skills are Anthropic-specific capabilities (web_search,
+  // code_execution, etc). The authoritative schema downstream
+  // (/v1/agents) only accepts `type: "anthropic" | "custom"`,
+  // but we accept `string()` here so a non-Anthropic LLM that
+  // hallucinates `type: "openai"` doesn't blow up the chat turn.
+  // The invalid entries get silently filtered by the builder
+  // before they ever reach the create-agent call — see
+  // sanitizeDraft() below.
   skills: z
     .array(
       z.object({
@@ -92,9 +100,15 @@ Schema for the oma-draft block:
   "description": "one sentence describing what the agent does",
   "system": "the system prompt the agent will run with — can be multi-paragraph",
   "mcp_servers": [{ "name": "slack", "url": "https://mcp.slack.com/sse", "type": "url" }],
-  "skills": [{ "type": "anthropic", "skill_id": "web_search" }],
+  "skills": [],
   "done": false
 }
+
+Skills rules (IMPORTANT — read carefully):
+- \`skills\` is ONLY for built-in Anthropic capabilities that piggyback on the Anthropic runtime (web_search, code_execution, computer_use, bash, str_replace_editor).
+- The ONLY valid values for skill.type are "anthropic" or "custom". NEVER emit "openai", "gemini", "gpt-4o", or any other provider name — those are not skill types and will be rejected.
+- Default skills to \`[]\`. Only add an entry when the user has explicitly asked for a capability that maps to one of the Anthropic built-ins, AND you are confident the active provider is Anthropic.
+- If you're unsure whether skills apply to the active provider, omit them entirely. MCP connectors via \`mcp_servers\` cover the equivalent functionality on all providers.
 
 Common connectors you can suggest (use these exact URLs):
 - slack: https://mcp.slack.com/sse
@@ -122,6 +136,24 @@ interface ParsedReply {
   done: boolean;
 }
 
+/**
+ * Drop any skill entries whose `type` isn't one of the values the
+ * downstream /v1/agents schema actually accepts. Non-Anthropic
+ * LLMs have been observed creatively extending the example in the
+ * system prompt (`type: "anthropic"`) to fabricate entries like
+ * `type: "openai"` — which then get rejected with a cryptic zod
+ * 400 at agent creation time. Silently dropping the invalid ones
+ * keeps the build flow unblocked while still honoring any real
+ * anthropic/custom skill the LLM correctly suggested.
+ */
+function sanitizeDraft(draft: Draft): Draft {
+  const validSkillTypes = new Set(["anthropic", "custom"]);
+  if (!draft.skills) return draft;
+  const filtered = draft.skills.filter((s) => validSkillTypes.has(s.type));
+  if (filtered.length === draft.skills.length) return draft;
+  return { ...draft, skills: filtered };
+}
+
 function parseAssistantReply(
   rawText: string,
   previousDraft: Draft,
@@ -144,10 +176,10 @@ function parseAssistantReply(
   const done = parsed.done === true;
   delete parsed.done;
 
-  const merged: Draft = {
+  const merged: Draft = sanitizeDraft({
     ...previousDraft,
     ...(parsed as Draft),
-  };
+  });
 
   return { reply, draft: merged, done };
 }

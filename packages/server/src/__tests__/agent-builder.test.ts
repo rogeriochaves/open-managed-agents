@@ -201,6 +201,66 @@ describe("POST /v1/agent-builder/chat", () => {
     expect(body.draft.system).toBe("final prompt");
   });
 
+  it("drops hallucinated invalid skill types (e.g. OpenAI LLM emitting type:openai)", async () => {
+    // Regression: non-Anthropic LLMs backing the builder have
+    // been observed extending the system-prompt example
+    // `skills: [{ type: "anthropic", ... }]` into creative
+    // fabrications like `type: "openai"` or `type: "gemini"`.
+    // Those then pass through to /v1/agents and trip the strict
+    // `invalid_union_discriminator` zod error with no hint of
+    // why. The sanitizer silently drops any skill with a type
+    // outside {"anthropic", "custom"} so the builder draft is
+    // always submittable.
+    stubChat.mockResolvedValueOnce({
+      content: [
+        {
+          type: "text",
+          text: `Here's your draft.
+
+\`\`\`oma-draft
+{
+  "name": "slack-summarizer",
+  "description": "Summarizes slack threads",
+  "system": "You summarize.",
+  "mcp_servers": [
+    { "name": "slack", "url": "https://mcp.slack.com/sse", "type": "url" }
+  ],
+  "skills": [
+    { "type": "openai", "skill_id": "gpt-4o-mini" },
+    { "type": "anthropic", "skill_id": "web_search" },
+    { "type": "gemini", "skill_id": "grounding" }
+  ],
+  "done": true
+}
+\`\`\``,
+        },
+      ],
+      stop_reason: "end_turn",
+      usage: { input_tokens: 10, output_tokens: 20 },
+      model: "stub-model",
+    });
+
+    const res = await app.request("/v1/agent-builder/chat", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        messages: [{ role: "user", content: "finalize" }],
+      }),
+    });
+
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      draft: { skills?: Array<{ type: string; skill_id: string }> };
+      done: boolean;
+    };
+    expect(body.done).toBe(true);
+    expect(body.draft.skills).toBeDefined();
+    // Only the anthropic entry survives
+    expect(body.draft.skills).toEqual([
+      { type: "anthropic", skill_id: "web_search" },
+    ]);
+  });
+
   it("falls back gracefully when the model forgets the fenced block", async () => {
     stubChat.mockResolvedValueOnce({
       content: [

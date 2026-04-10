@@ -577,20 +577,44 @@ export function QuickstartPage() {
   const handleCreateFromDraft = async () => {
     if (!builderDraft.name) return;
     setIsCreating(true);
+    setBuilderError(null);
     try {
+      // Defensive filter: only keep skills whose type matches
+      // the server's discriminator (anthropic | custom). A non-
+      // Anthropic LLM driving the builder has been seen to emit
+      // `type: "openai"` which silently 400s. The server-side
+      // sanitizer should have stripped these already, but keeping
+      // a mirror here protects against older builder snapshots
+      // still in memory from a pre-fix turn.
+      const cleanSkills = (builderDraft.skills ?? []).filter(
+        (s: any) => s?.type === "anthropic" || s?.type === "custom",
+      );
       const agent = await api.createAgent({
         name: builderDraft.name,
         description: builderDraft.description ?? "",
         model: selectedModel || selectedProvider?.default_model || "claude-sonnet-4-6",
         system: builderDraft.system ?? "You are a helpful assistant.",
         mcp_servers: builderDraft.mcp_servers ?? [],
-        skills: builderDraft.skills ?? [],
+        skills: cleanSkills,
         ...(selectedProvider?.id ? { model_provider_id: selectedProvider.id } : {}),
       } as any);
       setCreatedAgent(agent);
       markCompleted(0);
     } catch (err: any) {
-      setBuilderError(err?.message ?? "Failed to create the agent.");
+      // Try to surface a readable message. The api wrapper throws
+      // with .message set to the first zod issue where possible,
+      // but fall back to a generic line if not.
+      const raw = err?.message ?? String(err ?? "");
+      let friendly = raw;
+      // Strip JSON-looking prefixes / zod frames for readability
+      if (/ZodError|invalid_union_discriminator|invalid_type/i.test(raw)) {
+        friendly = "The draft is missing or has an invalid field. Ask the assistant to adjust and try again.";
+      } else if (/401|unauth/i.test(raw)) {
+        friendly = "Not authenticated — please log in again.";
+      } else if (/provider|model/i.test(raw) && /not found|404/i.test(raw)) {
+        friendly = "The selected provider or model isn't available. Pick another provider in the switcher above.";
+      }
+      setBuilderError(friendly);
     } finally {
       setIsCreating(false);
     }
@@ -675,6 +699,14 @@ export function QuickstartPage() {
             Keep chatting to refine — the Create button activates when the
             assistant says it's ready.
           </p>
+        )}
+        {builderError && (
+          <div
+            role="alert"
+            className="mt-3 rounded-lg border border-red-500/30 bg-red-500/5 p-3 text-xs text-red-600"
+          >
+            {builderError}
+          </div>
         )}
         <div className="mt-4">
           <CodeBlock configs={{ YAML: yamlStr, JSON: jsonStr }} />
