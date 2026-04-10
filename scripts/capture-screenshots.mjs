@@ -269,6 +269,18 @@ async function main() {
     await new Promise((r) => setTimeout(r, 800));
     await screenshot(cdp, join(OUT_DIR, "09-session-debug.png"));
 
+    // 10. Agents list
+    await navigate(cdp, "http://localhost:5173/agents");
+    await screenshot(cdp, join(OUT_DIR, "10-agents-list.png"));
+
+    // 11. Sessions list
+    await navigate(cdp, "http://localhost:5173/sessions");
+    await screenshot(cdp, join(OUT_DIR, "11-sessions-list.png"));
+
+    // 12. Environments list
+    await navigate(cdp, "http://localhost:5173/environments");
+    await screenshot(cdp, join(OUT_DIR, "12-environments-list.png"));
+
     log("all screenshots captured successfully");
   } finally {
     cdp.close();
