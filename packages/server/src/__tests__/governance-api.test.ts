@@ -124,6 +124,91 @@ describe("Governance API — direct CRUD", () => {
       data: Array<{ id: string }>;
     };
     expect(listBody.data.some((u) => u.id === userId)).toBe(true);
+
+    // Without a password the user row exists but password_hash
+    // is null — login should still 401. Guards against a
+    // regression where we accidentally set a default password.
+    const db = await getDB();
+    const alice = await db.get<{ password_hash: string | null }>(
+      "SELECT password_hash FROM users WHERE id = ?",
+      userId,
+    );
+    expect(alice?.password_hash).toBeFalsy();
+  });
+
+  it("creates a user with an initial password and the user can log in immediately", async () => {
+    const createRes = await app.request("/v1/users", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        email: "bob@testco.example",
+        name: "Bob",
+        role: "member",
+        organization_id: orgId,
+        password: "initial-pw-from-admin",
+      }),
+    });
+    expect(createRes.status).toBe(200);
+    const bob = (await createRes.json()) as { id: string };
+
+    // Row in DB has a bcrypt hash, not the plaintext
+    const db = await getDB();
+    const row = await db.get<{ password_hash: string }>(
+      "SELECT password_hash FROM users WHERE id = ?",
+      bob.id,
+    );
+    expect(row?.password_hash).toBeTruthy();
+    expect(row?.password_hash).not.toBe("initial-pw-from-admin");
+    // bcrypt hashes have the $2a$ / $2b$ prefix
+    expect(row?.password_hash).toMatch(/^\$2[aby]\$/);
+
+    // Bob can now log in — we temporarily flip AUTH_ENABLED on
+    // to exercise the real auth flow through the route
+    process.env.AUTH_ENABLED = "true";
+    try {
+      const loginRes = await app.request("/v1/auth/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          email: "bob@testco.example",
+          password: "initial-pw-from-admin",
+        }),
+      });
+      expect(loginRes.status).toBe(200);
+      const loginBody = (await loginRes.json()) as {
+        user: { email: string };
+      };
+      expect(loginBody.user.email).toBe("bob@testco.example");
+
+      // Wrong password still fails
+      const badRes = await app.request("/v1/auth/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          email: "bob@testco.example",
+          password: "wrong-password",
+        }),
+      });
+      expect(badRes.status).toBe(401);
+    } finally {
+      process.env.AUTH_ENABLED = "false";
+    }
+  });
+
+  it("rejects initial passwords shorter than 8 chars (zod min)", async () => {
+    const res = await app.request("/v1/users", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        email: "short@testco.example",
+        name: "Short",
+        role: "member",
+        organization_id: orgId,
+        password: "short",
+      }),
+    });
+    expect(res.status).toBeGreaterThanOrEqual(400);
+    expect(res.status).toBeLessThan(500);
   });
 
   it("adds a team member and upserts on re-add with a different role", async () => {

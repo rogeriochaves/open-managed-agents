@@ -1,6 +1,7 @@
 import { OpenAPIHono, createRoute, z } from "@hono/zod-openapi";
 import { getDB, newId } from "../db/index.js";
 import { currentUserId } from "../lib/current-user.js";
+import { hashPassword } from "../lib/auth-session.js";
 
 const tags = ["Governance"];
 
@@ -131,7 +132,7 @@ const listUsersRoute = createRoute({
 
 const createUserRoute = createRoute({
   method: "post", path: "/v1/users", tags, summary: "Create user",
-  request: { body: { content: { "application/json": { schema: z.object({ email: z.string(), name: z.string(), role: z.enum(["admin", "member", "viewer"]).optional(), organization_id: z.string().optional() }) } } } },
+  request: { body: { content: { "application/json": { schema: z.object({ email: z.string(), name: z.string(), role: z.enum(["admin", "member", "viewer"]).optional(), organization_id: z.string().optional(), password: z.string().min(8).optional() }) } } } },
   responses: { 200: { description: "Created", content: { "application/json": { schema: UserSchema } } } },
 });
 
@@ -353,15 +354,41 @@ export function registerGovernanceRoutes(app: OpenAPIHono) {
     const body = c.req.valid("json") as any;
     const id = newId("user");
     const now = new Date().toISOString();
+
+    // Optional initial password — if the admin supplies one we
+    // bcrypt it and store it in the same insert so the new user
+    // can log in immediately. Without this, the user row exists
+    // but `password_hash IS NULL` and login always 401s.
+    const passwordHash = body.password
+      ? await hashPassword(body.password)
+      : null;
+
     await db.run(
-      "INSERT INTO users (id, email, name, role, organization_id, created_at, updated_at) VALUES (?,?,?,?,?,?,?)",
-      id, body.email, body.name, body.role ?? "member", body.organization_id ?? "org_default", now, now
+      "INSERT INTO users (id, email, name, role, organization_id, password_hash, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?)",
+      id,
+      body.email,
+      body.name,
+      body.role ?? "member",
+      body.organization_id ?? "org_default",
+      passwordHash,
+      now,
+      now,
     );
     const row = await db.get(
       "SELECT id, email, name, role, organization_id, avatar_url, created_at, updated_at FROM users WHERE id = ?",
-      id
+      id,
     );
-    await auditLog(await currentUserId(c), "create", "user", id, JSON.stringify({ email: body.email, role: body.role ?? "member" }));
+    await auditLog(
+      await currentUserId(c),
+      "create",
+      "user",
+      id,
+      JSON.stringify({
+        email: body.email,
+        role: body.role ?? "member",
+        has_initial_password: !!body.password,
+      }),
+    );
     return c.json(rowClean(row), 200);
   });
 

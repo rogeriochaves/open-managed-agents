@@ -185,6 +185,7 @@ export function SettingsPage() {
   const [userRole, setUserRole] = useState<"admin" | "member" | "viewer">(
     "member",
   );
+  const [userPassword, setUserPassword] = useState("");
   const [userError, setUserError] = useState<string | null>(null);
 
   const addUserMut = useMutation({
@@ -193,6 +194,7 @@ export function SettingsPage() {
       name: string;
       role: "admin" | "member" | "viewer";
       organization_id: string;
+      password?: string;
     }) => {
       const res = await fetch(`/v1/users`, {
         method: "POST",
@@ -209,6 +211,7 @@ export function SettingsPage() {
       setUserEmail("");
       setUserName("");
       setUserRole("member");
+      setUserPassword("");
       setUserError(null);
     },
     onError: (err: any) => setUserError(err?.message ?? "Failed to add user"),
@@ -701,10 +704,8 @@ export function SettingsPage() {
                   Add user
                 </h3>
                 <p className="mt-0.5 text-xs text-text-muted">
-                  The user is added to the organization without a password.
-                  Share{" "}
-                  <code className="font-mono">POST /v1/auth/change-password</code>{" "}
-                  with them to set one.
+                  Set an initial password here so the new user can log in
+                  right away. They can change it themselves later.
                 </p>
               </div>
               <button
@@ -759,6 +760,23 @@ export function SettingsPage() {
               </select>
             </label>
 
+            <label className="mt-3 block">
+              <span className="text-xs font-medium uppercase tracking-wider text-text-muted">
+                Initial password
+              </span>
+              <input
+                type="password"
+                value={userPassword}
+                onChange={(e) => setUserPassword(e.target.value)}
+                placeholder="At least 8 characters"
+                className="mt-1 w-full rounded-md border border-surface-border bg-surface-secondary px-3 py-2 text-sm text-text-primary placeholder:text-text-muted focus:border-accent-blue focus:outline-none"
+              />
+              <span className="mt-1 block text-[10px] text-text-muted">
+                Share this with the user on a private channel — they can
+                change it from the login screen later.
+              </span>
+            </label>
+
             {userError && <p className="mt-3 text-xs text-red-600">{userError}</p>}
 
             <div className="mt-5 flex items-center justify-end gap-2">
@@ -773,11 +791,16 @@ export function SettingsPage() {
                 variant="primary"
                 onClick={() => {
                   if (!firstOrgId || !userEmail.trim() || !userName.trim()) return;
+                  if (userPassword && userPassword.length < 8) {
+                    setUserError("Password must be at least 8 characters");
+                    return;
+                  }
                   addUserMut.mutate({
                     email: userEmail.trim(),
                     name: userName.trim(),
                     role: userRole,
                     organization_id: firstOrgId,
+                    ...(userPassword ? { password: userPassword } : {}),
                   });
                 }}
                 disabled={

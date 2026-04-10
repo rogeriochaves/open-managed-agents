@@ -274,6 +274,10 @@ describe("SettingsPage", () => {
       screen.getByPlaceholderText(/Alice Example/i),
       "Bob Example",
     );
+    await user.type(
+      screen.getByPlaceholderText(/At least 8 characters/i),
+      "valid-initial-pw",
+    );
 
     // Role select — default is "member"
     // Both card trigger + modal submit match; pick the last one (the submit)
@@ -294,8 +298,51 @@ describe("SettingsPage", () => {
         name: "Bob Example",
         role: "member",
         organization_id: "org_default",
+        password: "valid-initial-pw",
       });
     });
+  });
+
+  it("rejects short initial passwords in the Add user modal without hitting the server", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await user.click(screen.getByRole("button", { name: /Organization/i }));
+
+    await waitFor(() => {
+      expect(screen.getByText("Default Organization")).toBeInTheDocument();
+    });
+
+    await user.click(screen.getByRole("button", { name: /Add user/i }));
+
+    await user.type(
+      await screen.findByPlaceholderText(/alice@example.com/i),
+      "short@example.com",
+    );
+    await user.type(
+      screen.getByPlaceholderText(/Alice Example/i),
+      "Short PW",
+    );
+    await user.type(
+      screen.getByPlaceholderText(/At least 8 characters/i),
+      "short",
+    );
+
+    const btns = screen.getAllByRole("button", { name: /^Add user$/ });
+    await user.click(btns[btns.length - 1]!);
+
+    // Client-side validation kicks in before the fetch
+    await waitFor(() => {
+      expect(
+        screen.getByText("Password must be at least 8 characters"),
+      ).toBeInTheDocument();
+    });
+    const posts = mockFetch.mock.calls.filter(
+      ([url, init]) =>
+        typeof url === "string" &&
+        url.endsWith("/v1/users") &&
+        init?.method === "POST",
+    );
+    expect(posts.length).toBe(0);
   });
 
   it("switches to Governance tab and shows provider access section", async () => {
