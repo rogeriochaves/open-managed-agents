@@ -9,6 +9,8 @@ import {
 } from "../schemas/sessions.js";
 import { pageCursorResponse } from "../schemas/common.js";
 import { getDB, newId } from "../db/index.js";
+import { auditLog } from "./governance.js";
+import { currentUserId } from "../lib/current-user.js";
 
 const tags = ["Sessions"];
 
@@ -190,6 +192,7 @@ export function registerSessionRoutes(app: OpenAPIHono) {
     );
 
     const row = await db.get("SELECT * FROM sessions WHERE id = ?", id);
+    await auditLog(await currentUserId(c), "create", "session", id, JSON.stringify({ agent_id: agentId }));
     return c.json(rowToSession(row), 200);
   });
 
@@ -288,6 +291,7 @@ export function registerSessionRoutes(app: OpenAPIHono) {
     await db.run("DELETE FROM events WHERE session_id = ?", sessionId);
     await db.run("DELETE FROM sessions WHERE id = ?", sessionId);
 
+    await auditLog(await currentUserId(c), "delete", "session", sessionId);
     return c.json({ id: sessionId, type: "session_deleted" }, 200);
   });
 
@@ -308,6 +312,7 @@ export function registerSessionRoutes(app: OpenAPIHono) {
       throw Object.assign(new Error(`Session ${sessionId} not found`), { status: 404, type: "not_found" });
     }
 
+    await auditLog(await currentUserId(c), "archive", "session", sessionId);
     return c.json(rowToSession(row), 200);
   });
 }

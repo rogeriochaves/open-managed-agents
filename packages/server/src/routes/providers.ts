@@ -2,6 +2,8 @@ import { OpenAPIHono, createRoute, z } from "@hono/zod-openapi";
 import { getDB, newId } from "../db/index.js";
 import { createProvider, clearProviderCache } from "../providers/index.js";
 import type { ProviderConfig } from "../providers/index.js";
+import { auditLog } from "./governance.js";
+import { currentUserId } from "../lib/current-user.js";
 
 const tags = ["Providers"];
 
@@ -196,6 +198,7 @@ export function registerProviderRoutes(app: OpenAPIHono) {
     clearProviderCache();
 
     const row = await db.get("SELECT * FROM llm_providers WHERE id = ?", id);
+    await auditLog(await currentUserId(c), "create", "provider", id, JSON.stringify({ name: body.name, type: body.type }));
     return c.json(rowToProvider(row), 200);
   });
 
@@ -204,6 +207,7 @@ export function registerProviderRoutes(app: OpenAPIHono) {
     const db = await getDB();
     await db.run("DELETE FROM llm_providers WHERE id = ?", providerId);
     clearProviderCache();
+    await auditLog(await currentUserId(c), "delete", "provider", providerId);
     return c.json({ deleted: true }, 200);
   });
 

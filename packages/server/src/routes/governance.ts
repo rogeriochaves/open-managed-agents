@@ -1,5 +1,6 @@
 import { OpenAPIHono, createRoute, z } from "@hono/zod-openapi";
 import { getDB, newId } from "../db/index.js";
+import { currentUserId } from "../lib/current-user.js";
 
 const tags = ["Governance"];
 
@@ -171,6 +172,7 @@ export function registerGovernanceRoutes(app: OpenAPIHono) {
       id, body.name, body.slug, body.logo_url ?? null, body.sso_provider ?? null, body.sso_config ? JSON.stringify(body.sso_config) : null, now, now
     );
     const row = await db.get("SELECT * FROM organizations WHERE id = ?", id);
+    await auditLog(await currentUserId(c), "create", "organization", id, JSON.stringify({ slug: body.slug }));
     return c.json(rowClean(row), 200);
   });
 
@@ -193,6 +195,7 @@ export function registerGovernanceRoutes(app: OpenAPIHono) {
       id, orgId, body.name, body.slug, body.description ?? null, now, now
     );
     const row = await db.get("SELECT * FROM teams WHERE id = ?", id);
+    await auditLog(await currentUserId(c), "create", "team", id, JSON.stringify({ organization_id: orgId, slug: body.slug }));
     return c.json(rowClean(row), 200);
   });
 
@@ -215,6 +218,7 @@ export function registerGovernanceRoutes(app: OpenAPIHono) {
       id, teamId, body.name, body.slug, body.description ?? null, now, now
     );
     const row = await db.get("SELECT * FROM projects WHERE id = ?", id);
+    await auditLog(await currentUserId(c), "create", "project", id, JSON.stringify({ team_id: teamId, slug: body.slug }));
     return c.json(rowClean(row), 200);
   });
 
@@ -357,6 +361,7 @@ export function registerGovernanceRoutes(app: OpenAPIHono) {
       "SELECT id, email, name, role, organization_id, avatar_url, created_at, updated_at FROM users WHERE id = ?",
       id
     );
+    await auditLog(await currentUserId(c), "create", "user", id, JSON.stringify({ email: body.email, role: body.role ?? "member" }));
     return c.json(rowClean(row), 200);
   });
 

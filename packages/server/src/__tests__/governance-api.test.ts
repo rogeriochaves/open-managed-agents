@@ -210,33 +210,28 @@ describe("Governance API — direct CRUD", () => {
   });
 
   it("filters audit log by resource_type", async () => {
-    // Seed an audit row directly — the public auditLog() helper is
-    // internal but we can use the DB adapter to insert one.
-    const db = await getDB();
-    await db.run(
-      "INSERT INTO audit_log (id, user_id, action, resource_type, resource_id, details) VALUES (?,?,?,?,?,?)",
-      "audit_test1",
-      userId,
-      "create",
-      "team",
-      teamId,
-      "{}"
-    );
-    await db.run(
-      "INSERT INTO audit_log (id, user_id, action, resource_type, resource_id, details) VALUES (?,?,?,?,?,?)",
-      "audit_test2",
-      userId,
-      "create",
-      "project",
-      "proj_x",
-      "{}"
-    );
-
-    const res = await app.request("/v1/audit-log?resource_type=team");
-    const body = (await res.json()) as {
-      data: Array<{ resource_type: string }>;
+    // The prior tests in this file already created a real team and a
+    // real project via the public routes, which now auto-write audit
+    // rows. So we don't need to seed anything manually — we just
+    // assert the filter returns the right rows by resource_type.
+    const teamRes = await app.request("/v1/audit-log?resource_type=team");
+    const teamBody = (await teamRes.json()) as {
+      data: Array<{ resource_type: string; resource_id: string }>;
     };
-    expect(body.data.length).toBe(1);
-    expect(body.data[0]?.resource_type).toBe("team");
+    expect(teamBody.data.length).toBeGreaterThanOrEqual(1);
+    expect(
+      teamBody.data.every((r) => r.resource_type === "team")
+    ).toBe(true);
+    // The team we created earlier in this file shows up
+    expect(
+      teamBody.data.some((r) => r.resource_id === teamId)
+    ).toBe(true);
+
+    // Filter by a resource_type nothing has written should return []
+    const noneRes = await app.request(
+      "/v1/audit-log?resource_type=nonexistent"
+    );
+    const noneBody = (await noneRes.json()) as { data: unknown[] };
+    expect(noneBody.data).toEqual([]);
   });
 });

@@ -9,6 +9,8 @@ import {
 } from "../schemas/environments.js";
 import { pageCursorResponse } from "../schemas/common.js";
 import { getDB, newId } from "../db/index.js";
+import { auditLog } from "./governance.js";
+import { currentUserId } from "../lib/current-user.js";
 
 const tags = ["Environments"];
 
@@ -90,6 +92,7 @@ export function registerEnvironmentRoutes(app: OpenAPIHono) {
     );
 
     const row = await db.get("SELECT * FROM environments WHERE id = ?", id);
+    await auditLog(await currentUserId(c), "create", "environment", id, JSON.stringify({ name: body.name }));
     return c.json(rowToEnvironment(row), 200);
   });
 
@@ -142,6 +145,7 @@ export function registerEnvironmentRoutes(app: OpenAPIHono) {
     const { environmentId } = c.req.valid("param");
     const db = await getDB();
     await db.run("DELETE FROM environments WHERE id = ?", environmentId);
+    await auditLog(await currentUserId(c), "delete", "environment", environmentId);
     return c.json({ id: environmentId, type: "environment_deleted" }, 200);
   });
 
@@ -152,6 +156,7 @@ export function registerEnvironmentRoutes(app: OpenAPIHono) {
     await db.run("UPDATE environments SET archived_at = ?, updated_at = ? WHERE id = ?", now, now, environmentId);
     const row = await db.get("SELECT * FROM environments WHERE id = ?", environmentId);
     if (!row) throw Object.assign(new Error(`Environment ${environmentId} not found`), { status: 404, type: "not_found" });
+    await auditLog(await currentUserId(c), "archive", "environment", environmentId);
     return c.json(rowToEnvironment(row), 200);
   });
 }
