@@ -50,6 +50,12 @@ Each new test file has a sibling `specs/*.feature` documenting the scenarios in 
 - `scripts/cli-smoke-test.sh` — end-to-end binary drives the live server through 5 subcommands.
 - `scenario-tests/agent-creation.scenario.test.ts` — live Claude + gpt-5-mini judge (opt-in, ~45s).
 
+#### Docker image hardening
+- Both `Dockerfile.server` and `Dockerfile.web` are now **multi-stage builds**.
+- `Dockerfile.server` drops dev-dependencies via `pnpm deploy --prod`, runs as the non-root `node` user, creates a writable `/app/data` directory owned by `node` for the SQLite file, and ships a `HEALTHCHECK` that curls `/v1/auth/me` every 15s.
+- `Dockerfile.web` similarly adds a curl-based `HEALTHCHECK` on `/` in the `nginx:alpine` runtime layer.
+- The final `CMD`/`EXPOSE` surface is unchanged so `docker-compose.yml` and the Helm chart keep working. `docker compose config -q` remains clean.
+
 #### Features
 - **SSO provider discovery** — `GET /v1/auth/sso-providers` returns each org's configured SSO provider + `login_url` so a login UI can render "Sign in with Okta / Google / …" buttons. The raw `sso_config` blob (which may contain secret fields like `client_secret_env`) is deliberately never exposed.
 - **Team-scoped provider access enforcement** — `POST /v1/sessions` now calls `canUseProvider()` and returns 403 if the caller is not on a team with an enabled `team_provider_access` row for the agent's provider. Admins bypass (no lockout).
