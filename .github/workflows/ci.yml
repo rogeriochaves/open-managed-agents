@@ -77,6 +77,10 @@ jobs:
         run: |
           # Start the server in the background on a non-default port to
           # avoid colliding with anything, then drive it with the CLI.
+          # Boot with auth disabled for the smoke test — the point
+          # of this job is to verify the CLI can drive the API, not
+          # to exercise the auth flow (that lives in auth-guard.test.ts).
+          AUTH_ENABLED=false \
           OMA_DEFAULT_ADMIN_PASSWORD=ci-test-pw \
           PORT=3099 \
           node packages/server/dist/index.js &
