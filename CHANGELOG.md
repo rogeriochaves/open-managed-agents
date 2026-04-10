@@ -7,7 +7,7 @@ All notable changes to this project are documented here. Format follows [Keep a 
 ### Added
 
 #### OSS baseline
-- `LICENSE` — Apache-2.0, chosen over MIT for its explicit patent grant (enterprise-friendly).
+- `LICENSE` — **AGPL-3.0-or-later**. Started the repo as Apache-2.0 for its patent grant, relicensed to AGPLv3 before any release to match the "self-hosted, source-available to downstream users" positioning: anyone running a modified fork as a network service must publish their modifications back. For users running unmodified self-hosted deployments internally, AGPLv3 behaves identically to any other permissive OSS license.
 - `CONTRIBUTING.md` — monorepo layout, dev setup, how to add a route, how to fix a bug, Conventional Commits, CI expectations.
 - `SECURITY.md` — responsible disclosure via GitHub Security Advisories, documented baseline protections (AES-256-GCM vaults, bcrypt, session-token hashing, httpOnly/SameSite cookies, no-echo API keys).
 - `.github/dependabot.yml` — weekly updates for npm (minor/patch batched, majors individual), GitHub Actions, and Docker base images.

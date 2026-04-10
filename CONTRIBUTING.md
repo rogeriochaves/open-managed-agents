@@ -108,4 +108,4 @@ No PR is green until all four pass. See `.github/workflows/ci.yml`.
 
 ## License
 
-By contributing, you agree that your contributions will be licensed under the Apache License 2.0 (see [LICENSE](LICENSE)).
+By contributing, you agree that your contributions will be licensed under the GNU Affero General Public License v3.0 or later (see [LICENSE](LICENSE)).

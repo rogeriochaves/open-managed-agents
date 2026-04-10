@@ -24,7 +24,7 @@
 
 <p align="center">
   <a href="https://github.com/rogeriochaves/open-managed-agents/actions/workflows/ci.yml"><img src="https://github.com/rogeriochaves/open-managed-agents/actions/workflows/ci.yml/badge.svg" alt="CI" /></a>
-  <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache%202.0-blue.svg" alt="License: Apache 2.0" /></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-AGPL%20v3-blue.svg" alt="License: AGPL v3" /></a>
 </p>
 
 <p align="center">
@@ -57,7 +57,7 @@ Open Managed Agents ships the same experience — same builder, same templates, 
 | **Helm chart** | N/A | Included (sqlite + embedded + external postgres modes) |
 | **Full audit log** | Limited | Every mutation logged with user + resource + details |
 | **Encrypted credential vaults** | N/A | AES-256-GCM at rest |
-| **OSS license** | Proprietary | Apache-2.0 |
+| **OSS license** | Proprietary | AGPL-3.0-or-later |
 
 ## Features
 
@@ -451,4 +451,6 @@ Contributions welcome. The project follows a BDD-first workflow — check `specs
 
 ## License
 
-MIT
+[GNU Affero General Public License v3.0 or later](LICENSE) (AGPL-3.0-or-later).
+
+The AGPL is chosen deliberately: if you run a modified fork of Open Managed Agents as a network service, you must offer the source of your modifications to its users. For anyone running the project unmodified inside their own org — which is the main use case — AGPLv3 behaves the same as any other OSS license.
