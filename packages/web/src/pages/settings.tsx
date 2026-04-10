@@ -376,7 +376,7 @@ export function SettingsPage() {
       <h2 className="text-lg font-semibold text-text-primary mb-1">Governance</h2>
       <p className="text-sm text-text-secondary mb-4">Control which providers and integrations each team can access.</p>
 
-      {teams.length > 1 && (
+      {teams.length > 1 ? (
         <div className="flex gap-2 mb-4">
           {teams.map((t: any) => (
             <button
@@ -388,7 +388,17 @@ export function SettingsPage() {
             </button>
           ))}
         </div>
-      )}
+      ) : activeTeamId && teams.length === 1 ? (
+        // Single-team deployments: no selector needed but users
+        // still deserve to know WHICH team these settings apply
+        // to, especially before they create a second team.
+        <div className="mb-4 text-xs text-text-muted">
+          Settings for team:{" "}
+          <span className="font-medium text-text-primary">
+            {teams[0]?.name}
+          </span>
+        </div>
+      ) : null}
 
       {activeTeamId && (
         <>
