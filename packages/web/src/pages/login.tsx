@@ -3,15 +3,30 @@ import { useNavigate } from "react-router-dom";
 import { Lock, Mail, AlertCircle } from "lucide-react";
 import { Button } from "../components/ui/button";
 
+/**
+ * Login form.
+ *
+ * Uses an uncontrolled form (reads from FormData on submit) so that password
+ * manager autofill is never ignored. Controlled state was causing the submit
+ * button to stay disabled when 1Password or the browser filled the password
+ * without firing a synthetic React change event.
+ */
 export function LoginPage() {
-  const [email, setEmail] = useState("admin@localhost");
-  const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
 
-  const handleSubmit = async (e: FormEvent) => {
+  const handleSubmit = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
+    const form = new FormData(e.currentTarget);
+    const email = String(form.get("email") ?? "").trim();
+    const password = String(form.get("password") ?? "");
+
+    if (!email || !password) {
+      setError("Email and password are required");
+      return;
+    }
+
     setError(null);
     setLoading(true);
     try {
@@ -49,10 +64,11 @@ export function LoginPage() {
               <Mail className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-text-muted" />
               <input
                 type="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
+                name="email"
+                defaultValue="admin@localhost"
                 required
                 autoFocus
+                autoComplete="email"
                 className="w-full rounded-md border border-surface-border bg-surface-secondary pl-9 pr-3 py-2 text-sm text-text-primary placeholder:text-text-muted focus:border-accent-blue focus:outline-none"
                 placeholder="admin@localhost"
               />
@@ -65,9 +81,9 @@ export function LoginPage() {
               <Lock className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-text-muted" />
               <input
                 type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
+                name="password"
                 required
+                autoComplete="current-password"
                 className="w-full rounded-md border border-surface-border bg-surface-secondary pl-9 pr-3 py-2 text-sm text-text-primary placeholder:text-text-muted focus:border-accent-blue focus:outline-none"
                 placeholder="••••••••"
               />
@@ -84,7 +100,7 @@ export function LoginPage() {
           <Button
             type="submit"
             variant="primary"
-            disabled={loading || !email || !password}
+            disabled={loading}
             className="w-full justify-center"
           >
             {loading ? "Signing in..." : "Sign in"}
