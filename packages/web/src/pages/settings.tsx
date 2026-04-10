@@ -556,8 +556,18 @@ export function SettingsPage() {
   const actionVariant = (
     action: string,
   ): "active" | "terminated" | "info" | "default" => {
-    if (action === "create") return "active";
-    if (action === "archive" || action === "delete") return "terminated";
+    if (action === "create" || action === "connect") return "active";
+    // `stop`/`disconnect` join archive/delete on the terminated
+    // (red) branch — all five are "the user ended this thing"
+    // actions and should read the same visual weight.
+    if (
+      action === "archive" ||
+      action === "delete" ||
+      action === "stop" ||
+      action === "disconnect"
+    ) {
+      return "terminated";
+    }
     if (action === "update") return "info";
     return "default";
   };
