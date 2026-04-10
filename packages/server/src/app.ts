@@ -23,6 +23,7 @@ import {
 import { registerGovernanceRoutes } from "./routes/governance.js";
 import { registerUsageRoutes } from "./routes/usage.js";
 import { registerAuthRoutes } from "./routes/auth.js";
+import { registerAgentBuilderRoutes } from "./routes/agent-builder.js";
 import { getDB } from "./db/index.js";
 import { loadGovernanceConfig } from "./lib/governance-config.js";
 import { initAuth } from "./lib/auth-session.js";
@@ -100,6 +101,7 @@ export async function createApp(
   registerGovernanceRoutes(app);
   registerUsageRoutes(app);
   registerAuthRoutes(app);
+  registerAgentBuilderRoutes(app);
 
   // ── Health check ──────────────────────────────────────────────────────
   app.get("/health", (c) =>
