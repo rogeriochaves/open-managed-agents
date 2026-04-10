@@ -200,6 +200,46 @@ export function createVault(params: VaultCreateParams) {
   });
 }
 
+// ── Providers ──────────────────────────────────────────────────────────────
+
+export interface LLMProvider {
+  id: string;
+  name: string;
+  type: "anthropic" | "openai" | "openai-compatible" | "ollama";
+  base_url: string | null;
+  default_model: string | null;
+  is_default: boolean;
+  has_api_key: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export function listProviders() {
+  return request<{ data: LLMProvider[] }>("/providers");
+}
+
+export function createProvider(params: {
+  name: string;
+  type: string;
+  api_key?: string;
+  base_url?: string;
+  default_model?: string;
+  is_default?: boolean;
+}) {
+  return request<LLMProvider>("/providers", {
+    method: "POST",
+    body: JSON.stringify(params),
+  });
+}
+
+export function deleteProvider(id: string) {
+  return request<{ deleted: boolean }>(`/providers/${id}`, { method: "DELETE" });
+}
+
+export function listProviderModels(providerId: string) {
+  return request<{ models: string[] }>(`/providers/${providerId}/models`);
+}
+
 // ── MCP Discovery ──────────────────────────────────────────────────────────
 
 export interface MCPConnector {

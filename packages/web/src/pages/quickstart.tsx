@@ -1,5 +1,6 @@
 import { useState, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
+import { useQuery } from "@tanstack/react-query";
 import {
   Check,
   ArrowLeft,
@@ -7,6 +8,7 @@ import {
   ChevronRight,
   Save,
   Play,
+  ChevronDown,
 } from "lucide-react";
 import { Button } from "../components/ui/button";
 import { CodeBlock } from "../components/ui/code-block";
@@ -216,6 +218,30 @@ const TEMPLATES: Template[] = [
       skills: [],
     },
   },
+  {
+    name: "Product analyst (PostHog)",
+    description:
+      "Query PostHog analytics, analyze funnels, cohorts, and feature flag impact with natural language.",
+    connectors: ["posthog", "slack"],
+    config: {
+      name: "product-analyst-posthog",
+      description: "Analyze product data from PostHog using natural language queries.",
+      model: "claude-sonnet-4-6",
+      system:
+        "You are a product analyst with access to PostHog. Query events, analyze funnels, explore cohorts, and report on feature flag impact. Present findings clearly with actionable insights.",
+      mcp_servers: [
+        { type: "url", name: "posthog", url: "https://mcp.posthog.com/sse" },
+        { type: "url", name: "slack", url: "https://mcp.slack.com/sse" },
+      ],
+      tools: [
+        {
+          type: "agent_toolset_20260401",
+          default_config: { enabled: true, permission_policy: { type: "always_allow" } },
+        },
+      ],
+      skills: [],
+    },
+  },
 ];
 
 /* ── Helpers ──────────────────────────────────────────────────────────── */
@@ -369,6 +395,23 @@ export function QuickstartPage() {
   const [configTab, setConfigTab] = useState<"Config" | "Preview">("Config");
   const [isCreating, setIsCreating] = useState(false);
   const [selectedMCPConnectors, setSelectedMCPConnectors] = useState<string[]>([]);
+  const [selectedProviderId, setSelectedProviderId] = useState<string | null>(null);
+  const [selectedModel, setSelectedModel] = useState<string>("claude-sonnet-4-6");
+  const [showProviderDropdown, setShowProviderDropdown] = useState(false);
+
+  const { data: providersData } = useQuery({
+    queryKey: ["providers"],
+    queryFn: () => api.listProviders(),
+  });
+  const providers = providersData?.data ?? [];
+  const selectedProvider = providers.find((p) => p.id === selectedProviderId) ?? providers.find((p) => p.is_default) ?? providers[0];
+
+  const { data: modelsData } = useQuery({
+    queryKey: ["provider-models", selectedProvider?.id],
+    queryFn: () => selectedProvider ? api.listProviderModels(selectedProvider.id) : Promise.resolve({ models: [] }),
+    enabled: !!selectedProvider,
+  });
+  const availableModels = modelsData?.models ?? [];
 
   const filteredTemplates = useMemo(() => {
     if (!searchQuery.trim()) return TEMPLATES;
@@ -395,9 +438,10 @@ export function QuickstartPage() {
       const agent = await api.createAgent({
         name: selectedTemplate.config.name as string,
         description: selectedTemplate.config.description as string,
-        model: selectedTemplate.config.model as string,
+        model: selectedModel || selectedTemplate.config.model as string,
         system: selectedTemplate.config.system as string,
-      });
+        ...(selectedProvider?.id ? { model_provider_id: selectedProvider.id } : {}),
+      } as any);
       setCreatedAgent(agent);
       markCompleted(0);
       // Stay at step 0 to show "Agent created" confirmation
@@ -432,9 +476,10 @@ export function QuickstartPage() {
       const agent = await api.createAgent({
         name: description.slice(0, 40).replace(/\s+/g, "-").toLowerCase(),
         description,
-        model: "claude-sonnet-4-6",
+        model: selectedModel || "claude-sonnet-4-6",
         system: description,
-      });
+        ...(selectedProvider?.id ? { model_provider_id: selectedProvider.id } : {}),
+      } as any);
       setCreatedAgent(agent);
       markCompleted(0);
     } catch {
@@ -522,6 +567,54 @@ export function QuickstartPage() {
           {isCreating ? "Creating..." : "Submit"}
         </Button>
       </div>
+
+      {/* Provider & Model selector */}
+      {providers.length > 0 && (
+        <div className="mt-4 flex items-center gap-3">
+          <div className="relative">
+            <button
+              onClick={() => setShowProviderDropdown(!showProviderDropdown)}
+              className="flex items-center gap-2 rounded-lg border border-surface-border bg-surface-secondary px-3 py-2 text-sm text-text-primary hover:bg-surface-hover cursor-pointer"
+            >
+              <span className="text-text-muted text-xs">Provider:</span>
+              <span>{selectedProvider?.name ?? "Select"}</span>
+              <ChevronDown className="h-3.5 w-3.5 text-text-muted" />
+            </button>
+            {showProviderDropdown && (
+              <div className="absolute left-0 top-full z-10 mt-1 w-48 rounded-lg border border-surface-border bg-surface-card shadow-lg">
+                {providers.map((p) => (
+                  <button
+                    key={p.id}
+                    onClick={() => {
+                      setSelectedProviderId(p.id);
+                      setSelectedModel(p.default_model ?? "");
+                      setShowProviderDropdown(false);
+                    }}
+                    className={`flex w-full items-center gap-2 px-3 py-2 text-sm text-left hover:bg-surface-hover cursor-pointer ${
+                      selectedProvider?.id === p.id ? "text-accent-blue" : "text-text-primary"
+                    }`}
+                  >
+                    <span className="flex-1">{p.name}</span>
+                    <Badge variant="default">{p.type}</Badge>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+          <select
+            value={selectedModel}
+            onChange={(e) => setSelectedModel(e.target.value)}
+            className="rounded-lg border border-surface-border bg-surface-secondary px-3 py-2 text-sm text-text-primary focus:border-accent-blue focus:outline-none cursor-pointer"
+          >
+            {selectedProvider?.default_model && !availableModels.includes(selectedProvider.default_model) && (
+              <option value={selectedProvider.default_model}>{selectedProvider.default_model}</option>
+            )}
+            {availableModels.map((m) => (
+              <option key={m} value={m}>{m}</option>
+            ))}
+          </select>
+        </div>
+      )}
 
       {/* Separator */}
       <div className="my-6 border-t border-surface-border" />
