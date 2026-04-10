@@ -107,6 +107,29 @@ export function registerUsageRoutes(app: OpenAPIHono) {
       totalInput += inputTokens;
       totalOutput += outputTokens;
 
+      // Infer provider type from the snapshot's model string when
+      // the llm_providers row is gone (deleted) or never set (old
+      // rows). Previously the fallback was hardcoded to "anthropic"
+      // so OpenAI sessions created before the provider row existed
+      // showed up on the Usage page as "Default ANTHROPIC" with the
+      // wrong cost rate. A model-id heuristic gives much better
+      // accuracy: every session row still has the model ID even if
+      // the provider row is gone.
+      const snapshotModel: string =
+        typeof snapshot.model === "string"
+          ? snapshot.model
+          : typeof snapshot.model?.id === "string"
+            ? snapshot.model.id
+            : "";
+      const inferTypeFromModel = (m: string): string => {
+        if (/^claude/i.test(m)) return "anthropic";
+        if (/^gpt|^o1|^o3/i.test(m)) return "openai";
+        if (/^gemini/i.test(m)) return "google";
+        if (/^mistral|^mixtral/i.test(m)) return "mistral";
+        if (/^llama|^qwen/i.test(m)) return "ollama";
+        return "anthropic";
+      };
+
       // By agent
       const agentId = s.agent_id;
       const agentName = snapshot.name ?? "Unknown";
@@ -120,7 +143,7 @@ export function registerUsageRoutes(app: OpenAPIHono) {
           session_count: 0,
           input_tokens: 0,
           output_tokens: 0,
-          provider_type: providerRow?.type ?? "anthropic",
+          provider_type: providerRow?.type ?? inferTypeFromModel(snapshotModel),
         });
       }
       const a = byAgent.get(agentId)!;
@@ -129,12 +152,17 @@ export function registerUsageRoutes(app: OpenAPIHono) {
       a.output_tokens += outputTokens;
 
       // By provider
-      const providerId = snapshot.model_provider_id ?? "provider_default";
+      const providerId = snapshot.model_provider_id ?? "provider_unconfigured";
       if (!byProvider.has(providerId)) {
         const providerRow = await db.get<any>("SELECT name, type FROM llm_providers WHERE id = ?", providerId);
+        const inferredType = inferTypeFromModel(snapshotModel);
         byProvider.set(providerId, {
-          provider_name: providerRow?.name ?? "Default",
-          provider_type: providerRow?.type ?? "anthropic",
+          provider_name:
+            providerRow?.name ??
+            (snapshot.model_provider_id
+              ? "(deleted)"
+              : `${inferredType[0]!.toUpperCase()}${inferredType.slice(1)}`),
+          provider_type: providerRow?.type ?? inferredType,
           session_count: 0,
           input_tokens: 0,
           output_tokens: 0,
