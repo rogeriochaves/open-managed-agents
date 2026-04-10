@@ -1,6 +1,7 @@
 import { OpenAPIHono, createRoute, z } from "@hono/zod-openapi";
 import { setCookie, deleteCookie, getCookie } from "hono/cookie";
 import { verifyCredentials, createSession, deleteSession, validateSession, changePassword } from "../lib/auth-session.js";
+import { getDB } from "../db/index.js";
 
 const tags = ["Auth"];
 
@@ -63,6 +64,31 @@ const meRoute = createRoute({
   },
 });
 
+const SSOProviderSchema = z.object({
+  organization_id: z.string(),
+  organization_name: z.string(),
+  organization_slug: z.string(),
+  provider: z.string(),
+  login_url: z.string().nullable(),
+});
+
+const listSSOProvidersRoute = createRoute({
+  method: "get",
+  path: "/v1/auth/sso-providers",
+  tags,
+  summary: "List configured SSO providers",
+  responses: {
+    200: {
+      description: "SSO providers configured per organization",
+      content: {
+        "application/json": {
+          schema: z.object({ data: z.array(SSOProviderSchema) }),
+        },
+      },
+    },
+  },
+});
+
 const changePasswordRoute = createRoute({
   method: "post",
   path: "/v1/auth/change-password",
@@ -121,6 +147,39 @@ export function registerAuthRoutes(app: OpenAPIHono) {
     const token = getCookie(c, "oma_session");
     const user = await validateSession(token);
     return c.json({ user }, 200);
+  });
+
+  app.openapi(listSSOProvidersRoute, async (c) => {
+    const db = await getDB();
+    // Only orgs with a non-null sso_provider are exposed. sso_config
+    // is deliberately NOT returned — it may contain secret fields
+    // like client_secret_env. Only a derived login_url (if the
+    // config supplies one) is exposed so the web login page can
+    // render a "Sign in with X" button.
+    const rows = await db.all<any>(
+      `SELECT id, name, slug, sso_provider, sso_config
+       FROM organizations
+       WHERE sso_provider IS NOT NULL`
+    );
+    const data = rows.map((row) => {
+      let loginUrl: string | null = null;
+      if (row.sso_config) {
+        try {
+          const cfg = JSON.parse(row.sso_config) as Record<string, unknown>;
+          if (typeof cfg.login_url === "string") loginUrl = cfg.login_url;
+        } catch {
+          // malformed config — ignore, don't leak the raw blob
+        }
+      }
+      return {
+        organization_id: row.id,
+        organization_name: row.name,
+        organization_slug: row.slug,
+        provider: row.sso_provider,
+        login_url: loginUrl,
+      };
+    });
+    return c.json({ data }, 200);
   });
 
   app.openapi(changePasswordRoute, async (c) => {

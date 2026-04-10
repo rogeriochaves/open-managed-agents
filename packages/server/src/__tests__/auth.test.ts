@@ -109,6 +109,43 @@ describe("Auth flow", () => {
     expect(afterBody.user).toBeNull();
   });
 
+  it("lists configured SSO providers without leaking sso_config secrets", async () => {
+    // Seed one org with an SSO provider + a secret in sso_config that must NOT leak
+    const { getDB } = await import("../db/index.js");
+    const db = await getDB();
+    await db.run(
+      "INSERT INTO organizations (id, name, slug, sso_provider, sso_config) VALUES (?, ?, ?, ?, ?)",
+      "org_sso_test",
+      "Acme SSO",
+      "acme-sso",
+      "okta",
+      JSON.stringify({
+        client_id: "pub-abc",
+        client_secret_env: "OKTA_CLIENT_SECRET",
+        login_url: "https://acme.okta.com/oauth2/v1/authorize",
+      })
+    );
+
+    const res = await app.request("/v1/auth/sso-providers");
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      data: Array<{
+        organization_slug: string;
+        provider: string;
+        login_url: string | null;
+      }>;
+    };
+    const acme = body.data.find((p) => p.organization_slug === "acme-sso");
+    expect(acme?.provider).toBe("okta");
+    expect(acme?.login_url).toBe("https://acme.okta.com/oauth2/v1/authorize");
+
+    // Critical: the secret must never appear in the serialized response
+    const raw = JSON.stringify(body);
+    expect(raw).not.toContain("OKTA_CLIENT_SECRET");
+    expect(raw).not.toContain("client_id");
+    expect(raw).not.toContain("pub-abc");
+  });
+
   it("change-password rotates the credential and invalidates old password", async () => {
     // Login
     const loginRes = await app.request("/v1/auth/login", {
