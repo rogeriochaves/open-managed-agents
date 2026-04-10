@@ -95,8 +95,8 @@ class OpenManagedAgentAdapter extends scenario.AgentAdapter {
           system: [
             "You are a helpful assistant.",
             "For clear, well-specified questions give a clear, direct, accurate answer.",
-            "For ambiguous or under-specified requests (e.g. 'I need help with a programming question'), ask one or two concise clarifying questions before diving in, so you can give a response that actually matches the user's situation.",
-            "Always stay on topic and keep answers helpful.",
+            "For ambiguous or under-specified requests (e.g. 'I need help with a programming question' or 'my code doesn't work'), you MUST ask for SPECIFIC details before attempting to help. Always ask at least: (1) the language or stack, (2) the exact error message or unexpected behavior, (3) a minimal code snippet that reproduces the issue. NEVER repeat the same generic 'share your question' prompt — each turn should advance the conversation with concrete asks.",
+            "Always stay on topic and keep answers helpful and actionable.",
           ].join(" "),
         }),
       });
@@ -288,6 +288,28 @@ class AgentBuilderAdapter extends scenario.AgentAdapter {
   }
 }
 
+/**
+ * Assert a scenario result passed, and on failure print the judge's
+ * reasoning so we can actually see *why* the judge graded it a
+ * failure instead of staring at `expected true`.
+ */
+function expectScenarioSuccess(
+  result: { success: boolean; reasoning?: string },
+  label: string,
+) {
+  if (!result.success) {
+    // eslint-disable-next-line no-console
+    console.error(
+      `[scenario:${label}] judge verdict = failure. reasoning:\n${
+        result.reasoning ?? "(none)"
+      }`,
+    );
+  }
+  expect(result.success, `${label}: ${result.reasoning ?? "(no reasoning)"}`).toBe(
+    true,
+  );
+}
+
 describe("LangWatch Scenario: Agent creation flow", () => {
   // Only run if explicitly enabled - requires server + ANTHROPIC_API_KEY + OPENAI for judge
   const ENABLED =
@@ -322,7 +344,7 @@ describe("LangWatch Scenario: Agent creation flow", () => {
         maxTurns: 5,
       });
 
-      expect(result.success).toBe(true);
+      expectScenarioSuccess(result, "simple-factual");
     },
     120_000
   );
@@ -347,16 +369,24 @@ describe("LangWatch Scenario: Agent creation flow", () => {
             ],
           }),
         ],
+        // NB: each `proceed(n)` spends `n` simulated turns (user + agent
+        // pairs), so proceed(3) already eats 6 turns on top of the
+        // initial user + agent + judge. `maxTurns` has to be GENEROUSLY
+        // larger than that, otherwise the script hits maxTurns before
+        // the judge step ever runs and the whole test fails with
+        // "Reached end of script without conclusion". Prior versions of
+        // this file set maxTurns=8 which left zero headroom — that's
+        // the root cause of the "flaky" judge failures.
         script: [
           scenario.user("I need help with a programming question"),
           scenario.agent(),
           scenario.proceed(3),
           scenario.judge(),
         ],
-        maxTurns: 8,
+        maxTurns: 20,
       });
 
-      expect(result.success).toBe(true);
+      expectScenarioSuccess(result, "multi-turn-clarification");
     },
     180_000
   );
@@ -386,18 +416,30 @@ describe("LangWatch Scenario: Agent creation flow", () => {
             ],
           }),
         ],
+        // maxTurns budgeted generously above the proceed(4) window so
+        // the judge step always gets to run. Setting it to 10 (one
+        // above script length) is exactly where the prior
+        // "flakiness" was coming from — the script ended before the
+        // judge ran and the scenario library returned
+        // "Reached end of script without conclusion".
+        // Script ends with an explicit "ship it" user turn so the
+        // builder's LLM actually emits done=true. Without this, the
+        // user simulator keeps iterating and the test fails criterion
+        // 4 because the draft never gets marked done.
         script: [
           scenario.user(
             "I want to build a customer support agent that reads our Notion docs and escalates hard questions to Slack",
           ),
           scenario.agent(),
-          scenario.proceed(4),
+          scenario.proceed(3),
+          scenario.user("That looks great — let's ship it!"),
+          scenario.agent(),
           scenario.judge(),
         ],
-        maxTurns: 10,
+        maxTurns: 25,
       });
 
-      expect(result.success).toBe(true);
+      expectScenarioSuccess(result, "agent-builder");
       // Also assert the builder reached done=true on at least one turn.
       // This guards against the LLM being infinitely conversational
       // without ever signaling readiness.
