@@ -10,7 +10,8 @@ import {
 import { pageCursorResponse } from "../schemas/common.js";
 import { getDB, newId } from "../db/index.js";
 import { auditLog } from "./governance.js";
-import { currentUserId } from "../lib/current-user.js";
+import { currentUser, currentUserId } from "../lib/current-user.js";
+import { canUseProvider } from "../lib/access-control.js";
 
 const tags = ["Sessions"];
 
@@ -157,6 +158,25 @@ export function registerSessionRoutes(app: OpenAPIHono) {
 
     if (!agent) {
       throw Object.assign(new Error(`Agent ${agentId} not found`), { status: 404, type: "not_found" });
+    }
+
+    // Enforce team_provider_access: the caller must be allowed to use
+    // the provider the agent was built against. Admins and
+    // unauthenticated requests (auth disabled) bypass this check.
+    if (agent.model_provider_id) {
+      const user = await currentUser(c);
+      const allowed = await canUseProvider({
+        db,
+        userId: user?.id ?? null,
+        userRole: user?.role ?? null,
+        providerId: agent.model_provider_id,
+      });
+      if (!allowed) {
+        throw Object.assign(
+          new Error(`Not authorized to use provider ${agent.model_provider_id}`),
+          { status: 403, type: "forbidden" }
+        );
+      }
     }
 
     // Build agent snapshot
