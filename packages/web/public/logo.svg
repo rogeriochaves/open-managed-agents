@@ -1,30 +1,28 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" fill="none">
   <defs>
-    <linearGradient id="bg" x1="0" y1="0" x2="64" y2="64" gradientUnits="userSpaceOnUse">
-      <stop offset="0%" stop-color="#4F7BF7" stop-opacity="0.15"/>
-      <stop offset="100%" stop-color="#4F7BF7" stop-opacity="0.05"/>
+    <linearGradient id="oma-bg" x1="0" y1="0" x2="64" y2="64" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#FFF3E4"/>
+      <stop offset="100%" stop-color="#FFD19B"/>
     </linearGradient>
-    <linearGradient id="accent" x1="0" y1="0" x2="64" y2="64" gradientUnits="userSpaceOnUse">
-      <stop offset="0%" stop-color="#6B93FF"/>
-      <stop offset="100%" stop-color="#4F7BF7"/>
+    <linearGradient id="oma-accent" x1="0" y1="0" x2="64" y2="64" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#FF9E2C"/>
+      <stop offset="100%" stop-color="#ED8926"/>
     </linearGradient>
-    <linearGradient id="node" x1="0" y1="0" x2="64" y2="64" gradientUnits="userSpaceOnUse">
-      <stop offset="0%" stop-color="#7DA4FF"/>
-      <stop offset="100%" stop-color="#4F7BF7"/>
+    <linearGradient id="oma-node" x1="0" y1="0" x2="64" y2="64" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#FF9E2C"/>
+      <stop offset="100%" stop-color="#dd6b20"/>
     </linearGradient>
   </defs>
 
   <!-- Rounded square background -->
-  <rect x="2" y="2" width="60" height="60" rx="14" fill="url(#bg)" stroke="url(#accent)" stroke-width="1.5"/>
+  <rect x="2" y="2" width="60" height="60" rx="14" fill="url(#oma-bg)" stroke="url(#oma-accent)" stroke-width="1.5"/>
 
   <!-- Network edges connecting nodes -->
-  <g stroke="url(#accent)" stroke-width="1.5" stroke-linecap="round" opacity="0.5">
-    <!-- Center to corners -->
+  <g stroke="url(#oma-accent)" stroke-width="1.5" stroke-linecap="round" opacity="0.55">
     <line x1="32" y1="32" x2="18" y2="18"/>
     <line x1="32" y1="32" x2="46" y2="18"/>
     <line x1="32" y1="32" x2="18" y2="46"/>
     <line x1="32" y1="32" x2="46" y2="46"/>
-    <!-- Cross connections -->
     <line x1="18" y1="18" x2="46" y2="18"/>
     <line x1="46" y1="18" x2="46" y2="46"/>
     <line x1="46" y1="46" x2="18" y2="46"/>
@@ -32,19 +30,19 @@
   </g>
 
   <!-- Corner nodes (agents) -->
-  <circle cx="18" cy="18" r="4.5" fill="url(#node)" opacity="0.85"/>
-  <circle cx="46" cy="18" r="4.5" fill="url(#node)" opacity="0.85"/>
-  <circle cx="18" cy="46" r="4.5" fill="url(#node)" opacity="0.85"/>
-  <circle cx="46" cy="46" r="4.5" fill="url(#node)" opacity="0.85"/>
+  <circle cx="18" cy="18" r="4.5" fill="url(#oma-node)" opacity="0.9"/>
+  <circle cx="46" cy="18" r="4.5" fill="url(#oma-node)" opacity="0.9"/>
+  <circle cx="18" cy="46" r="4.5" fill="url(#oma-node)" opacity="0.9"/>
+  <circle cx="46" cy="46" r="4.5" fill="url(#oma-node)" opacity="0.9"/>
 
-  <!-- Center orchestrator node (larger, brighter) -->
-  <circle cx="32" cy="32" r="7" fill="url(#node)"/>
-  <circle cx="32" cy="32" r="3.5" fill="#0d0d0d"/>
-  <circle cx="32" cy="32" r="2" fill="url(#accent)"/>
+  <!-- Center orchestrator node -->
+  <circle cx="32" cy="32" r="7.5" fill="url(#oma-node)"/>
+  <circle cx="32" cy="32" r="3.5" fill="#FFFFFF"/>
+  <circle cx="32" cy="32" r="2" fill="url(#oma-accent)"/>
 
-  <!-- Small accent dots on edges -->
-  <circle cx="25" cy="25" r="1.5" fill="#6B93FF" opacity="0.6"/>
-  <circle cx="39" cy="25" r="1.5" fill="#6B93FF" opacity="0.6"/>
-  <circle cx="25" cy="39" r="1.5" fill="#6B93FF" opacity="0.6"/>
-  <circle cx="39" cy="39" r="1.5" fill="#6B93FF" opacity="0.6"/>
+  <!-- Small accent dots -->
+  <circle cx="25" cy="25" r="1.5" fill="#FF9E2C" opacity="0.7"/>
+  <circle cx="39" cy="25" r="1.5" fill="#FF9E2C" opacity="0.7"/>
+  <circle cx="25" cy="39" r="1.5" fill="#FF9E2C" opacity="0.7"/>
+  <circle cx="39" cy="39" r="1.5" fill="#FF9E2C" opacity="0.7"/>
 </svg>

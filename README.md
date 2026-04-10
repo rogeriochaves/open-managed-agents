@@ -22,6 +22,10 @@
   <a href="#helm-chart">Helm Chart</a>
 </p>
 
+<p align="center">
+  <img src="docs/screenshots/03-agent-created.png" alt="Building an agent in Open Managed Agents" width="100%" />
+</p>
+
 ---
 
 ## Why Open Managed Agents?
@@ -101,6 +105,41 @@ pnpm dev
 ```
 
 Open http://localhost:5173 and follow the Quickstart wizard.
+
+## Screenshots
+
+<table>
+  <tr>
+    <td width="50%">
+      <img src="docs/screenshots/02-quickstart-templates.png" alt="Quickstart with pre-built templates" />
+      <p align="center"><strong>Quickstart wizard</strong> — pick from 10 templates or start from scratch</p>
+    </td>
+    <td width="50%">
+      <img src="docs/screenshots/03-agent-created.png" alt="Agent builder with MCP connectors" />
+      <p align="center"><strong>Agent builder</strong> — YAML/JSON config, curl/Python/TS snippets, MCP connectors</p>
+    </td>
+  </tr>
+  <tr>
+    <td width="50%">
+      <img src="docs/screenshots/08-session-transcript.png" alt="Live session transcript with markdown" />
+      <p align="center"><strong>Session transcript</strong> — live SSE streaming, rich markdown, token counter</p>
+    </td>
+    <td width="50%">
+      <img src="docs/screenshots/09-session-debug.png" alt="Debug view showing every event" />
+      <p align="center"><strong>Debug view</strong> — every span, tool call, and status change with timing</p>
+    </td>
+  </tr>
+  <tr>
+    <td width="50%">
+      <img src="docs/screenshots/05-settings-providers.png" alt="LLM provider management" />
+      <p align="center"><strong>LLM providers</strong> — Anthropic, OpenAI, Ollama, any OpenAI-compatible API</p>
+    </td>
+    <td width="50%">
+      <img src="docs/screenshots/07-usage-cost.png" alt="Usage and cost analytics" />
+      <p align="center"><strong>Usage &amp; cost</strong> — tokens and spend broken down by provider and agent</p>
+    </td>
+  </tr>
+</table>
 
 ### Using with Ollama (no API key needed)
 
