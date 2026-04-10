@@ -1,0 +1,17 @@
+apiVersion: v2
+name: open-managed-agents
+description: A Helm chart for Open Managed Agents - self-hosted AI agent management platform
+type: application
+version: 0.2.0
+appVersion: "0.2.0"
+keywords:
+  - ai
+  - agents
+  - managed-agents
+  - anthropic
+  - openai
+home: https://github.com/rchaves/open-managed-agents
+sources:
+  - https://github.com/rchaves/open-managed-agents
+maintainers:
+  - name: rchaves

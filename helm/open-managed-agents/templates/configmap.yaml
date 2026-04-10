@@ -1,0 +1,42 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "oma.fullname" . }}-nginx
+  labels:
+    {{- include "oma.labels" . | nindent 4 }}
+data:
+  default.conf: |
+    server {
+        listen 80;
+        root /usr/share/nginx/html;
+        index index.html;
+
+        # SPA fallback
+        location / {
+            try_files $uri $uri/ /index.html;
+        }
+
+        # Proxy API requests to the server
+        location /v1/ {
+            proxy_pass http://{{ include "oma.fullname" . }}-server:{{ .Values.server.port }};
+            proxy_http_version 1.1;
+            proxy_set_header Upgrade $http_upgrade;
+            proxy_set_header Connection "upgrade";
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_buffering off;
+            proxy_cache off;
+        }
+    }
+---
+{{- if .Values.governance.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "oma.fullname" . }}-governance
+  labels:
+    {{- include "oma.labels" . | nindent 4 }}
+data:
+  governance.yaml: |
+    {{- .Values.governance.config | toYaml | nindent 4 }}
+{{- end }}

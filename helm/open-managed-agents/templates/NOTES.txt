@@ -1,0 +1,63 @@
+Open Managed Agents has been deployed!
+
+{{- if .Values.ingress.enabled }}
+
+Access the application at:
+  {{- if .Values.ingress.tls.enabled }}
+  https://{{ .Values.ingress.host }}
+  {{- else }}
+  http://{{ .Values.ingress.host }}
+  {{- end }}
+
+{{- else }}
+
+To access the application, run:
+
+  kubectl port-forward svc/{{ include "oma.fullname" . }}-web {{ .Values.web.port }}:{{ .Values.web.port }} -n {{ .Release.Namespace }}
+
+Then open http://localhost:{{ .Values.web.port }} in your browser.
+
+{{- end }}
+
+API server (internal):
+  {{ include "oma.fullname" . }}-server:{{ .Values.server.port }}
+
+{{- if not .Values.server.env.anthropicApiKey }}
+{{- if not .Values.server.existingSecret }}
+
+WARNING: No ANTHROPIC_API_KEY has been set. The server will not be able to
+make API calls to Anthropic. Set it via:
+
+  helm upgrade {{ .Release.Name }} {{ .Chart.Name }} \
+    --set server.env.anthropicApiKey=sk-ant-...
+
+Or create a Secret and reference it:
+
+  --set server.existingSecret=my-api-keys
+
+{{- end }}
+{{- end }}
+
+{{- if not .Values.server.env.vaultEncryptionKey }}
+
+NOTE: No VAULT_ENCRYPTION_KEY was provided. The server will auto-generate one
+on first boot. To persist encrypted data across restarts, extract the key
+and pin it:
+
+  kubectl exec deploy/{{ include "oma.fullname" . }}-server -n {{ .Release.Namespace }} \
+    -- cat /data/.env 2>/dev/null | grep VAULT_ENCRYPTION_KEY
+
+Then set it in your values:
+
+  server.env.vaultEncryptionKey: <extracted-key>
+
+{{- end }}
+
+{{- if not .Values.persistence.enabled }}
+
+WARNING: Persistence is disabled. SQLite data will be lost when the server
+pod is restarted. Enable it with:
+
+  persistence.enabled: true
+
+{{- end }}

@@ -1,0 +1,195 @@
+# -- Open Managed Agents Helm Chart Values
+# Default values for self-hosting Open Managed Agents.
+
+# ---------------------------------------------------------------------------
+# Server (Hono API)
+# ---------------------------------------------------------------------------
+server:
+  # -- Container image for the API server
+  image:
+    repository: open-managed-agents/server
+    tag: ""  # defaults to Chart.appVersion
+    pullPolicy: IfNotPresent
+
+  # -- Number of server replicas. Keep at 1 when using SQLite (file-based DB).
+  replicas: 1
+
+  # -- Port the Hono server listens on inside the container
+  port: 3001
+
+  # -- Resource requests and limits for the server pod
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: "1"
+      memory: 512Mi
+
+  # -- Environment variables injected into the server container.
+  # API keys are stored in a Kubernetes Secret (see server.env.anthropicApiKey).
+  # Non-secret env vars can be added under server.env.extra as key-value pairs.
+  env:
+    # -- Anthropic API key (required). Stored in a Secret.
+    anthropicApiKey: ""
+
+    # -- OpenAI API key (optional). Stored in a Secret.
+    openaiApiKey: ""
+
+    # -- Vault encryption key (64 hex chars / 32 bytes). If left empty the
+    # server auto-generates one on first boot, but you should set this
+    # explicitly so that encrypted data survives pod restarts.
+    vaultEncryptionKey: ""
+
+    # -- Extra non-secret environment variables for the server container.
+    # Example:
+    #   extra:
+    #     LOG_LEVEL: debug
+    extra: {}
+
+  # -- Use an existing Secret instead of the chart-managed one.
+  # When set, the chart will NOT create its own Secret; you are responsible for
+  # providing a Secret with keys: ANTHROPIC_API_KEY, OPENAI_API_KEY,
+  # VAULT_ENCRYPTION_KEY.
+  existingSecret: ""
+
+  # -- Node selector for server pods
+  nodeSelector: {}
+
+  # -- Tolerations for server pods
+  tolerations: []
+
+  # -- Affinity rules for server pods
+  affinity: {}
+
+# ---------------------------------------------------------------------------
+# Web (React frontend via nginx)
+# ---------------------------------------------------------------------------
+web:
+  # -- Container image for the web frontend
+  image:
+    repository: open-managed-agents/web
+    tag: ""  # defaults to Chart.appVersion
+    pullPolicy: IfNotPresent
+
+  # -- Number of web replicas. The frontend is stateless so scale freely.
+  replicas: 2
+
+  # -- Port nginx listens on inside the container
+  port: 80
+
+  # -- Resource requests and limits for the web pod
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 200m
+      memory: 128Mi
+
+  # -- Node selector for web pods
+  nodeSelector: {}
+
+  # -- Tolerations for web pods
+  tolerations: []
+
+  # -- Affinity rules for web pods
+  affinity: {}
+
+# ---------------------------------------------------------------------------
+# Persistence (SQLite data volume)
+# ---------------------------------------------------------------------------
+persistence:
+  # -- Enable persistent storage for the SQLite database. Strongly
+  # recommended for production; without it data is lost on pod restart.
+  enabled: true
+
+  # -- Storage class name. Leave empty for the cluster default.
+  storageClassName: ""
+
+  # -- Size of the PVC for the SQLite database
+  size: 1Gi
+
+  # -- Access modes for the PVC. ReadWriteOnce is required for SQLite.
+  accessModes:
+    - ReadWriteOnce
+
+  # -- Use an existing PVC instead of creating a new one
+  existingClaim: ""
+
+# ---------------------------------------------------------------------------
+# Ingress
+# ---------------------------------------------------------------------------
+ingress:
+  # -- Enable ingress resource
+  enabled: false
+
+  # -- Ingress class name (e.g. "nginx", "traefik")
+  className: ""
+
+  # -- Annotations for the ingress resource
+  # Example for cert-manager:
+  #   annotations:
+  #     cert-manager.io/cluster-issuer: letsencrypt-prod
+  annotations: {}
+
+  # -- Hostname for the ingress
+  host: oma.example.com
+
+  # -- TLS configuration
+  tls:
+    # -- Enable TLS on the ingress
+    enabled: false
+    # -- Secret name containing the TLS certificate. If using cert-manager
+    # this is created automatically.
+    secretName: oma-tls
+
+# ---------------------------------------------------------------------------
+# Governance configuration
+# ---------------------------------------------------------------------------
+governance:
+  # -- Enable governance config (org/team structure, API-key controls).
+  # When enabled, a ConfigMap is created and mounted into the server at
+  # /etc/oma/governance.yaml.
+  enabled: false
+
+  # -- Inline governance configuration. This YAML is rendered into a ConfigMap.
+  # Example:
+  #   config:
+  #     org: my-company
+  #     teams:
+  #       - name: platform
+  #         allowedProviders: [anthropic, openai]
+  #         maxAgents: 10
+  #       - name: data-science
+  #         allowedProviders: [anthropic]
+  #         maxAgents: 5
+  #     apiKeyPolicy:
+  #       rotationDays: 90
+  #       requireEncryption: true
+  config: {}
+
+# ---------------------------------------------------------------------------
+# Common
+# ---------------------------------------------------------------------------
+
+# -- Override the chart name
+nameOverride: ""
+
+# -- Override the full release name
+fullnameOverride: ""
+
+# -- Image pull secrets for private registries
+imagePullSecrets: []
+
+# -- Annotations to add to all pods
+podAnnotations: {}
+
+# -- Security context for all pods
+podSecurityContext:
+  fsGroup: 1000
+
+# -- Container-level security context
+securityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
