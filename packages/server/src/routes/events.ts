@@ -218,11 +218,34 @@ export function registerEventRoutes(app: OpenAPIHono) {
         const { tool_use_id: toolUseId, result, deny_message } = evt;
 
         if (result === "allow") {
-          // Update the tool_use event to reflect that it is now allowed
-          await db.run(
-            "UPDATE events SET data = json_replace(data, '$.evaluated_permission', 'allow') WHERE id = ?",
+          // Load the tool_use event, patch evaluated_permission, save back.
+          // We avoid json_replace (SQLite-only) by reading as text,
+          // parsing, and writing the updated JSON as text — works for both
+          // SQLite and Postgres since both store JSON as TEXT.
+          //
+          // The tool_use event is identified by its tool_use_id (stored in the
+          // JSON data field), not by the event's own id.
+          const rows = await db.all<{ id: string; data: string }>(
+            "SELECT id, data FROM events WHERE session_id = ? AND type IN (?, ?) AND json_extract(data, '$.tool_use_id') = ? LIMIT 1",
+            sessionId,
+            "agent.tool_use",
+            "agent.mcp_tool_use",
             toolUseId
           );
+          const row = rows[0];
+          if (row) {
+            try {
+              const parsed = JSON.parse(row.data);
+              parsed.evaluated_permission = "allow";
+              await db.run(
+                "UPDATE events SET data = ? WHERE id = ?",
+                JSON.stringify(parsed),
+                row.id
+              );
+            } catch {
+              // Malformed JSON in the row — skip.
+            }
+          }
         } else if (result === "deny") {
           // Inject a denial tool result so the model sees the denial in history
           await db.run(

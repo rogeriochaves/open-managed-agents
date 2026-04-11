@@ -24,7 +24,9 @@ process.env.VAULT_ENCRYPTION_KEY = randomBytes(32).toString("hex");
 delete process.env.ANTHROPIC_API_KEY;
 delete process.env.OPENAI_API_KEY;
 
+
 const { createApp } = await import("../app.js");
+const { storeEvent } = await import("../engine/index.js");
 
 let app: Awaited<ReturnType<typeof createApp>>;
 let agentId: string;
@@ -276,5 +278,164 @@ describe("Sessions + events", () => {
       method: "POST",
     });
     expect(res.status).toBe(404);
+  });
+});
+
+describe("Tool confirmation lifecycle", () => {
+  let confirmSessionId: string;
+
+  beforeAll(async () => {
+    // Create a dedicated session for tool-confirmation tests.
+    // The agent has no provider so the engine loop won't run —
+    // confirming the event store / SQL patch path only.
+    const res = await app.request("/v1/sessions", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        agent: agentId,
+        environment_id: "env_default",
+        title: "tool-confirmation-test",
+      }),
+    });
+    const body = (await res.json()) as { id: string };
+    confirmSessionId = body.id;
+  });
+
+  // storeEvent generates its own event id; we track tool_use_id in data.
+  // GET /events returns events with data spread flat (rowToEvent).
+  function findByToolUseId(events: any[], id: string) {
+    return events.find((e: any) => e.tool_use_id === id);
+  }
+
+  it("stores an agent.tool_use event with evaluated_permission=pending", async () => {
+    const toolUseId = "tool_call_pending_test";
+    // agent.tool_use is not in EventSendBodySchema (POST only accepts user events),
+    // so we write it directly via storeEvent (same as the engine does).
+    await storeEvent(confirmSessionId, "agent.tool_use", {
+      tool_use_id: toolUseId,
+      name: "__mcp__slack__send_message",
+      input: { channel: "general", text: "hello" },
+      evaluated_permission: "pending",
+    });
+
+    const r = await app.request(`/v1/sessions/${confirmSessionId}/events`);
+    const { data } = await r.json() as { data: any[] };
+    const toolUseEvent = findByToolUseId(data, toolUseId);
+    expect(toolUseEvent).toBeDefined();
+    expect(toolUseEvent!.evaluated_permission).toBe("pending");
+    expect(toolUseEvent!.name).toBe("__mcp__slack__send_message");
+  });
+
+  it("user.tool_confirmation {result:allow} updates evaluated_permission to allow", async () => {
+    const toolUseId = "tool_call_confirm_allow_test";
+    await storeEvent(confirmSessionId, "agent.tool_use", {
+      tool_use_id: toolUseId,
+      name: "__mcp__slack__send_message",
+      input: { channel: "general", text: "hi" },
+      evaluated_permission: "pending",
+    });
+
+    const confirmRes = await app.request(`/v1/sessions/${confirmSessionId}/events`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        events: [
+          {
+            type: "user.tool_confirmation",
+            tool_use_id: toolUseId,
+            result: "allow",
+          },
+        ],
+      }),
+    });
+    expect(confirmRes.status).toBe(200);
+
+    const r = await app.request(`/v1/sessions/${confirmSessionId}/events`);
+    const { data } = await r.json() as { data: any[] };
+    const toolUseEvent = findByToolUseId(data, toolUseId);
+    expect(toolUseEvent).toBeDefined();
+    expect(toolUseEvent!.evaluated_permission).toBe("allow");
+  });
+
+  it("user.tool_confirmation {result:deny} injects agent.tool_result with is_error=true and custom message", async () => {
+    const toolUseId = "tool_call_confirm_deny_test";
+    await storeEvent(confirmSessionId, "agent.tool_use", {
+      tool_use_id: toolUseId,
+      name: "__mcp__github__create_issue",
+      input: { repo: "test/repo", title: "bug" },
+      evaluated_permission: "pending",
+    });
+
+    const denyRes = await app.request(`/v1/sessions/${confirmSessionId}/events`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        events: [
+          {
+            type: "user.tool_confirmation",
+            tool_use_id: toolUseId,
+            result: "deny",
+            deny_message: "Not allowed to create issues right now.",
+          },
+        ],
+      }),
+    });
+    expect(denyRes.status).toBe(200);
+
+    const r = await app.request(`/v1/sessions/${confirmSessionId}/events`);
+    const { data } = await r.json() as { data: any[] };
+    const toolResultEvent = data.find((e: any) => e.type === "agent.tool_result" && e.tool_use_id === toolUseId);
+    expect(toolResultEvent).toBeDefined();
+    expect(toolResultEvent!.is_error).toBe(true);
+    expect(toolResultEvent!.content[0].text).toBe("Not allowed to create issues right now.");
+  });
+
+  it("user.tool_confirmation {result:deny} uses default message when deny_message is absent", async () => {
+    const toolUseId = "tool_call_confirm_deny_default_test";
+    await storeEvent(confirmSessionId, "agent.tool_use", {
+      tool_use_id: toolUseId,
+      name: "__mcp__slack__post_message",
+      input: {},
+      evaluated_permission: "pending",
+    });
+
+    const denyRes = await app.request(`/v1/sessions/${confirmSessionId}/events`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        events: [
+          {
+            type: "user.tool_confirmation",
+            tool_use_id: toolUseId,
+            result: "deny",
+          },
+        ],
+      }),
+    });
+    expect(denyRes.status).toBe(200);
+
+    const r = await app.request(`/v1/sessions/${confirmSessionId}/events`);
+    const { data } = await r.json() as { data: any[] };
+    const toolResultEvent = data.find((e: any) => e.type === "agent.tool_result" && e.tool_use_id === toolUseId);
+    expect(toolResultEvent).toBeDefined();
+    expect(toolResultEvent!.content[0].text).toBe("Tool execution was denied by the user.");
+  });
+
+  it("user.tool_confirmation for an unknown tool_use_id is silently ignored", async () => {
+    const res = await app.request(`/v1/sessions/${confirmSessionId}/events`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        events: [
+          {
+            type: "user.tool_confirmation",
+            tool_use_id: "this_id_does_not_exist",
+            result: "allow",
+          },
+        ],
+      }),
+    });
+    // Graceful no-op — 200 not 404
+    expect(res.status).toBe(200);
   });
 });
