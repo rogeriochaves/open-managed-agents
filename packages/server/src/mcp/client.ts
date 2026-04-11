@@ -49,8 +49,12 @@ export async function createMCPServerConnection(
     ? `Bearer ${config.authToken}`
     : undefined;
 
-  // Start SSE listener
-  await startSSEListener(config.url, authHeader, pendingRequests, onNotification, abortController.signal);
+  // Start SSE listener — fire and forget; it runs in the background and
+  // feeds responses into pendingRequests as they arrive over the stream.
+  // We do NOT await it: SSE responses are long-lived and never "complete",
+  // so awaiting would deadlock createMCPServerConnection indefinitely.
+  startSSEListener(config.url, authHeader, pendingRequests, onNotification, abortController.signal)
+    .catch((err) => console.error(`[MCP] SSE listener error for ${config.name}:`, err));
 
   const conn: MCPServerConnection = {
     name: config.name,

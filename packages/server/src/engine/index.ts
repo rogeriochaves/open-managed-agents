@@ -395,7 +395,7 @@ async function updateSessionUsage(
 /**
  * Build conversation messages from stored events for a session.
  */
-async function buildMessagesFromEvents(sessionId: string): Promise<ChatMessage[]> {
+export async function buildMessagesFromEvents(sessionId: string): Promise<ChatMessage[]> {
   const db = await getDB();
   const events = await db.all<{ type: string; data: string }>(
     "SELECT type, data FROM events WHERE session_id = ? ORDER BY processed_at ASC",
