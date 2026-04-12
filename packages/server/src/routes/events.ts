@@ -212,7 +212,59 @@ export function registerEventRoutes(app: OpenAPIHono) {
         e.type === "user.message" || e.type === "user.custom_tool_result"
     );
 
-    if (hasUserMessage) {
+    // Handle user.tool_confirmation: approve or deny a pending tool call
+    for (const evt of body.events ?? []) {
+      if (evt.type === "user.tool_confirmation") {
+        const { tool_use_id: toolUseId, result, deny_message } = evt;
+
+        if (result === "allow") {
+          // Load the tool_use event, patch evaluated_permission, save back.
+          // We avoid json_replace (SQLite-only) by reading as text,
+          // parsing, and writing the updated JSON as text — works for both
+          // SQLite and Postgres since both store JSON as TEXT.
+          //
+          // The tool_use event is identified by its tool_use_id (stored in the
+          // JSON data field), not by the event's own id.
+          const rows = await db.all<{ id: string; data: string }>(
+            "SELECT id, data FROM events WHERE session_id = ? AND type IN (?, ?) AND json_extract(data, '$.tool_use_id') = ? LIMIT 1",
+            sessionId,
+            "agent.tool_use",
+            "agent.mcp_tool_use",
+            toolUseId
+          );
+          const row = rows[0];
+          if (row) {
+            try {
+              const parsed = JSON.parse(row.data);
+              parsed.evaluated_permission = "allow";
+              await db.run(
+                "UPDATE events SET data = ? WHERE id = ?",
+                JSON.stringify(parsed),
+                row.id
+              );
+            } catch {
+              // Malformed JSON in the row — skip.
+            }
+          }
+        } else if (result === "deny") {
+          // Inject a denial tool result so the model sees the denial in history
+          await db.run(
+            `INSERT INTO events (id, session_id, type, data, processed_at) VALUES (?, ?, ?, ?, ?)`,
+            newId("evt"),
+            sessionId,
+            "agent.tool_result",
+            JSON.stringify({
+              tool_use_id: toolUseId,
+              content: [{ type: "text", text: deny_message ?? "Tool execution was denied by the user." }],
+              is_error: true,
+            }),
+            new Date().toISOString()
+          );
+        }
+      }
+    }
+
+    if (hasUserMessage || (body.events ?? []).some((e: any) => e.type === "user.tool_confirmation")) {
       // Resolve provider
       const providerConfig = await getProviderConfig(agentSnapshot.model_provider_id);
       if (providerConfig) {
@@ -224,6 +276,7 @@ export function registerEventRoutes(app: OpenAPIHono) {
           tools: agentSnapshot.tools ?? [],
           mcp_servers: agentSnapshot.mcp_servers ?? [],
           skills: agentSnapshot.skills ?? [],
+          vault_ids: JSON.parse(session.vault_ids ?? "[]"),
         };
 
         // Resolve the caller's org so the engine can look up stored

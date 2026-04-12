@@ -19,6 +19,14 @@ import {
   callMCPTool,
   MCPClientError,
 } from "../lib/mcp-client.js";
+import { resolveMCPCredential } from "../mcp/registry.js";
+import {
+  resolveMCPTools,
+  executeMCPTool,
+  isMCPTool,
+  mcpToolRequiresConfirmation,
+  MCPExecutorConfig,
+} from "../mcp/executor.js";
 
 export interface AgentConfig {
   name: string;
@@ -27,6 +35,8 @@ export interface AgentConfig {
   tools: any[];
   mcp_servers: any[];
   skills: any[];
+  /** Session IDs whose vaults supply MCP credentials. */
+  vault_ids?: string[];
 }
 
 export interface SessionEventEmitter {
@@ -89,11 +99,16 @@ export interface ResolvedTools {
  *
  * Built-in + custom tools are returned unchanged. For every entry in
  * agentConfig.mcp_servers we open a short-lived MCP connection
- * (StreamableHTTPClientTransport + Bearer from mcp_connections) and
- * list the server's real tools. Each remote tool is added to the
+ * (StreamableHTTPClientTransport + Bearer from vault or mcp_connections)
+ * and list the server's real tools. Each remote tool is added to the
  * LLM's tool list with a `__mcp__<connector>__<tool>` prefix and
  * a matching entry in `mcpRoutes` so callMCPTool() can route a tool
  * call back to the right server.
+ *
+ * Credential resolution order: vault (via resolveMCPCredential) first,
+ * then falling back to the mcp_connections table. This ensures that
+ * vault-based credentials — stored under sessions.vault_ids — are
+ * always preferred over org-scoped connector tokens.
  *
  * If a connector fails (no token stored, unreachable, 401, …) we log
  * the reason and skip it. The agent still runs with whatever tools
@@ -102,6 +117,7 @@ export interface ResolvedTools {
 export async function resolveTools(
   agentConfig: AgentConfig,
   organizationId: string,
+  sessionId?: string,
 ): Promise<ResolvedTools> {
   const tools: ToolDefinition[] = [];
   const mcpRoutes = new Map<string, MCPToolRoute>();
@@ -118,20 +134,61 @@ export async function resolveTools(
     }
   }
 
+  // Process mcp_toolset entries using the MCP executor
+  const mcpToolsets = agentConfig.tools.filter((t) => t.type === "mcp_toolset");
+  if (mcpToolsets.length > 0 && agentConfig.mcp_servers && agentConfig.mcp_servers.length > 0) {
+    const executorConfig: MCPExecutorConfig = {
+      sessionId: sessionId ?? "",
+      mcpServers: agentConfig.mcp_servers.map((s) => ({ name: String(s.name ?? ""), url: String(s.url ?? "") })),
+      mcpToolsets: mcpToolsets as any,
+      vaultIds: agentConfig.vault_ids ?? [],
+    };
+    try {
+      const mcpTools = await resolveMCPTools(executorConfig);
+      tools.push(...mcpTools);
+    } catch (err) {
+      console.warn(
+        `[engine] failed to resolve MCP toolsets:`,
+        err instanceof Error ? err.message : err,
+      );
+    }
+  }
+
   for (const mcp of agentConfig.mcp_servers ?? []) {
     const connectorId = String(mcp.name ?? "");
     const url = String(mcp.url ?? "");
     if (!connectorId || !url) continue;
 
     let token: string | null = null;
-    try {
-      token = await loadConnectorToken(organizationId, connectorId);
-    } catch (err) {
-      console.warn(
-        `[engine] failed to load token for ${connectorId}:`,
-        err instanceof Error ? err.message : err,
-      );
-      continue;
+    const vaultIds = agentConfig.vault_ids ?? [];
+
+    // 1. Try vault credentials first (per-session vault IDs).
+    if (sessionId && vaultIds.length > 0) {
+      try {
+        const vaultCred = await resolveMCPCredential(sessionId, connectorId);
+        if (vaultCred) {
+          token = vaultCred.token;
+        }
+      } catch (err) {
+        console.warn(
+          `[engine] vault credential lookup failed for ${connectorId}:`,
+          err instanceof Error ? err.message : err,
+        );
+        // Fall through to mcp_connections below.
+      }
+    }
+
+    // 2. Fall back to org-scoped mcp_connections table.
+    if (token === null) {
+      try {
+        token = await loadConnectorToken(organizationId, connectorId);
+      } catch (err) {
+        console.warn(
+          `[engine] failed to load token for ${connectorId}:`,
+          err instanceof Error ? err.message : err,
+        );
+        continue;
+      }
     }
 
     try {
@@ -176,14 +233,38 @@ export async function resolveTools(
  *
  * If the tool name starts with `__mcp__<connector>__`, it's routed
  * through the MCP client using the matching route from resolveTools.
+ *
+ * If the tool name starts with `mcp_`, it's routed through the MCP executor
+ * using the session-scoped MCP session.
  */
 export async function executeBuiltinTool(
   name: string,
   input: Record<string, unknown>,
   mcpRoutes?: Map<string, MCPToolRoute>,
+  sessionId?: string,
 ): Promise<{ content: string; is_error: boolean }> {
   try {
-    // ── Remote MCP tool ──────────────────────────────────────────
+    // ── Remote MCP tool (new mcp_ prefix via executor) ───────────
+    if (isMCPTool(name)) {
+      if (!sessionId) {
+        return {
+          content: `MCP tool ${name} requires a session ID but none was provided.`,
+          is_error: true,
+        };
+      }
+      try {
+        const result = await executeMCPTool(sessionId, name, input);
+        return result;
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        return {
+          content: `MCP tool execution failed (${name}): ${msg}`,
+          is_error: true,
+        };
+      }
+    }
+
+    // ── Legacy MCP tool (__mcp__ prefix via mcpRoutes) ────────────
     if (name.startsWith("__mcp__") && mcpRoutes?.has(name)) {
       const route = mcpRoutes.get(name)!;
       try {
@@ -255,7 +336,7 @@ export async function executeBuiltinTool(
 /**
  * Store an event in the database and return it.
  */
-async function storeEvent(
+export async function storeEvent(
   sessionId: string,
   type: string,
   data: Record<string, unknown>
@@ -314,7 +395,7 @@ async function updateSessionUsage(
 /**
  * Build conversation messages from stored events for a session.
  */
-async function buildMessagesFromEvents(sessionId: string): Promise<ChatMessage[]> {
+export async function buildMessagesFromEvents(sessionId: string): Promise<ChatMessage[]> {
   const db = await getDB();
   const events = await db.all<{ type: string; data: string }>(
     "SELECT type, data FROM events WHERE session_id = ? ORDER BY processed_at ASC",
@@ -344,6 +425,14 @@ async function buildMessagesFromEvents(sessionId: string): Promise<ChatMessage[]
         messages.push({ role: "assistant", content: text });
       }
     } else if (evt.type === "agent.tool_use") {
+      // Skip MCP tools that are still pending user confirmation.
+      // The engine emits them with evaluated_permission="pending" and goes
+      // idle. Once the user approves/denies, the tool confirmation handler
+      // updates this event and re-triggers the engine.
+      if (data.evaluated_permission === "pending") {
+        continue;
+      }
+
       // Add tool_use as part of assistant message
       const last = messages[messages.length - 1];
       if (last?.role === "assistant") {
@@ -402,7 +491,7 @@ export async function runAgentLoop(
   maxIterations = 20,
   organizationId = "org_default",
 ): Promise<void> {
-  const { tools, mcpRoutes } = await resolveTools(agentConfig, organizationId);
+  const { tools, mcpRoutes } = await resolveTools(agentConfig, organizationId, sessionId);
   let iteration = 0;
 
   // Mark session as running
@@ -502,12 +591,18 @@ export async function runAgentLoop(
 
       // Process tool calls
       for (const toolUse of toolUseParts) {
-        // Emit tool use event
+        const toolName = toolUse.name ?? "";
+        const isMCP = toolName.startsWith("__mcp__") || isMCPTool(toolName);
+
+        // Emit tool use event.
+        // Custom tools: always allow (user provided the result via user.custom_tool_result).
+        // MCP tools: require explicit user confirmation first.
+        const evaluatedPermission = isMCP ? "pending" : "allow";
         const toolUseEvent = await storeEvent(sessionId, "agent.tool_use", {
           tool_use_id: toolUse.id,
           name: toolUse.name,
           input: toolUse.input,
-          evaluated_permission: "allow",
+          evaluated_permission: evaluatedPermission,
         });
         emitter?.emit(toolUseEvent);
 
@@ -534,11 +629,51 @@ export async function runAgentLoop(
           return;
         }
 
-        // Execute built-in or routed-MCP tool
+        // MCP tools: pause and wait for user confirmation before executing.
+        // The engine will be re-triggered by user.tool_confirmation (allow/deny).
+        if (isMCP) {
+          await updateSessionStatus(sessionId, "idle");
+          const idleEvent = await storeEvent(sessionId, "session.status_idle", {
+            stop_reason: {
+              type: "requires_action",
+              event_ids: [toolUseEvent.id],
+            },
+          });
+          emitter?.emit(idleEvent);
+          return;
+        }
+
+        // Check if this tool already has a result in history (e.g., injected
+        // by a prior deny confirmation). If so, skip re-execution.
+        const allResultRows = await getDB().then((db) =>
+          db.all<{ id: string; data: string }>(
+            "SELECT id, data FROM events WHERE session_id = ? AND type = 'agent.tool_result'",
+            sessionId,
+          )
+        );
+        let skipped = false;
+        for (const row of allResultRows) {
+          try {
+            const existingData = JSON.parse(row.data);
+            if (existingData?.tool_use_id === toolUse.id) {
+              // Result already injected (denial or prior execution) — skip.
+              skipped = true;
+              break;
+            }
+          } catch {
+            // Not parseable JSON — ignore.
+          }
+        }
+        if (skipped) {
+          continue;
+        }
+
+        // Execute built-in tool
         const toolResult = await executeBuiltinTool(
           toolUse.name!,
           toolUse.input ?? {},
           mcpRoutes,
+          sessionId,
         );
 
         // Store tool result
