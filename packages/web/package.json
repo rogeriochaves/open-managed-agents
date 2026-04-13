@@ -14,7 +14,7 @@
   "dependencies": {
     "@fontsource/inter": "^5.2.8",
     "@open-managed-agents/types": "workspace:*",
-    "@tanstack/react-query": "^5.65.0",
+    "@tanstack/react-query": "^5.99.0",
     "lucide-react": "^0.475.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
