@@ -8,14 +8,14 @@
     "test:watch": "vitest"
   },
   "devDependencies": {
-    "@langwatch/scenario": "^0.4.9",
+    "@langwatch/scenario": "^0.4.11",
     "@types/node": "^22.0.0",
     "tsx": "^4.19.0",
     "typescript": "^5.8.0",
     "vitest": "^3.0.0"
   },
   "dependencies": {
-    "@ai-sdk/openai": "^3.0.52",
-    "dotenv": "^17.4.1"
+    "@ai-sdk/openai": "^3.0.53",
+    "dotenv": "^17.4.2"
   }
 }
