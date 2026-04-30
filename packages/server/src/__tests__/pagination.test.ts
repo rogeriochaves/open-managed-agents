@@ -126,10 +126,12 @@ async function insertVault(displayName: string, createdAtIso: string): Promise<s
 
 describe("Cursor pagination via after_id", () => {
   // Shared timestamps: 3 rows created 10s apart so the cursor
-  // comparisons are unambiguous.
-  const t1 = "2026-04-10T10:00:00.000Z";
-  const t2 = "2026-04-10T10:00:10.000Z";
-  const t3 = "2026-04-10T10:00:20.000Z";
+  // comparisons are unambiguous. Pinned to a far-future date so that
+  // seeded rows (e.g., env_default, created at CURRENT_TIMESTAMP at
+  // boot) never sort newer than these by created_at DESC.
+  const t1 = "2099-04-10T10:00:00.000Z";
+  const t2 = "2099-04-10T10:00:10.000Z";
+  const t3 = "2099-04-10T10:00:20.000Z";
 
   it("agents: after_id honors the cursor instead of returning page 1", async () => {
     const a1 = await insertAgent("agent-alpha", t1);
