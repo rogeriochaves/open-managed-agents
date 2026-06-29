@@ -17,9 +17,9 @@
     ]
   },
   "devDependencies": {
-    "concurrently": "^9.2.1",
+    "concurrently": "^10.0.3",
     "turbo": "^2.5.0",
-    "typescript": "^5.8.0",
+    "typescript": "^6.0.3",
     "ws": "^8.20.0"
   }
 }
