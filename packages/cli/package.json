@@ -16,12 +16,12 @@
   "dependencies": {
     "@anthropic-ai/sdk": "^0.87.0",
     "@open-managed-agents/types": "workspace:*",
-    "commander": "^13.1.0",
+    "commander": "^15.0.0",
     "dotenv": "^17.4.1"
   },
   "devDependencies": {
-    "@types/node": "^22.0.0",
+    "@types/node": "^26.0.1",
     "tsx": "^4.19.0",
-    "vitest": "^3.0.0"
+    "vitest": "^4.1.9"
   }
 }
